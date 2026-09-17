@@ -1,0 +1,10 @@
+# The whole repository is workflow YAML, so actionlint is the entire test suite. Pinned to the
+# version ci.yml runs in Docker, so a local pass means the same thing CI's does. actionlint shells
+# out to shellcheck for every `run:` block; the Docker image bundles it, a local install does not.
+[tools]
+actionlint = "1.7.12"
+shellcheck = "0.11.0"
+
+[tasks.lint]
+description = "Lint the workflows, the way ci.yml does"
+run = "actionlint -color"
