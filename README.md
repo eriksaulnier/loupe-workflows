@@ -1,16 +1,10 @@
 # loupe-workflows
 
+[![ci](https://github.com/eriksaulnier/loupe-workflows/actions/workflows/ci.yml/badge.svg)](https://github.com/eriksaulnier/loupe-workflows/actions/workflows/ci.yml)
+
 A reusable GitHub Actions workflow that reviews a pull request with an agent and publishes the result as one GitHub review, using [loupe](https://github.com/eriksaulnier/loupe).
 
 A round captures the pull request, runs Claude Code over the captured head and diff, and publishes what the agent filed. Nothing is posted that loupe did not compose, and the published body passes loupe's Markdown allowlist before it is sent.
-
-## Why a reusable workflow and not an action
-
-The agent never holds a token that can write to the pull request.
-
-`claude-code-action` embeds the token it is given into the workspace's `.git/config` before it starts the agent, and a review is exactly the place untrusted text gets read. So the round is split across two jobs: `review` runs the agent with a read-only token, hands its data root on as an artifact, and `publish` posts from that artifact with a write token and no agent, no checkout and no pull request content in its workspace.
-
-A composite action cannot do this. A composite action runs inside the job that calls it — one job, one token, the agent holding it. That is why this ships as `workflow_call`.
 
 ## Using it
 
@@ -48,9 +42,18 @@ jobs:
       openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
+## Why a reusable workflow and not an action
+
+The agent never holds a token that can write to the pull request.
+
+`claude-code-action` embeds the token it is given into the workspace's `.git/config` before it starts the agent, and a review is exactly the place untrusted text gets read. So the round is split across two jobs: `review` runs the agent with a read-only token, hands its data root on as an artifact, and `publish` posts from that artifact with a write token and no agent, no checkout and no pull request content in its workspace.
+
+A composite action cannot do this. A composite action runs inside the job that calls it — one job, one token, the agent holding it. That is why this ships as `workflow_call`.
+
 ## The caller permissions gotcha
 
-**The caller MUST grant `contents: read`, `pull-requests: write`, `checks: read` and `actions: read` on the calling job.**
+> [!IMPORTANT]
+> The caller MUST grant `contents: read`, `pull-requests: write`, `checks: read` and `actions: read` on the calling job.
 
 A called workflow's per-job `permissions:` are a ceiling, not a grant: the token each of its jobs gets is the intersection of what the job asks for and what the *calling* job was given. Leave them off and the calling job falls back to the repository's default — which, in most repositories, is read-only. The `review` job still runs, the agent still files findings, and then `publish` gets a read-only token and fails at the last step with a permissions error that names loupe rather than your workflow.
 
