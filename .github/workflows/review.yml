@@ -444,10 +444,16 @@ jobs:
 
             You MUST confirm that `loupe add` returned `ok: true` and one finding per input entry.
             Finish with `loupe summary --expect-findings N --json --body`, or `--from` a JSON file
-            containing `{"summary": "..."}`: two or three sentences on what the change does and what
-            you found, and, when you left something unchecked, one sentence naming it. N MUST be the
-            number of findings you intended to file, counted from your own list. If you found none,
-            you MUST skip `loupe add` and write the summary with `--expect-findings 0`.
+            containing `{"summary": "..."}`. The summary covers your review, not the change: the
+            author wrote the change, and the published body already lists the counts and the
+            findings. Write one or two short sentences — what you checked closely, and what you
+            could not check — naming real things, a function or a path or an input, not "the code".
+            Use plain words and short sentences, the way you would say it out loud. With no
+            findings, still say what you checked and what you could not, so the author can tell a
+            careful pass from a shallow one. You MUST NOT describe what the change does or repeat
+            the findings. N MUST be the number of findings you intended to file, counted from
+            your own list. If you found none, you MUST skip `loupe add` and write the summary with
+            `--expect-findings 0`.
             You MUST confirm that summary returned `ok: true` and `includedCount` equal to N. On a
             mismatch, you MUST repair the missing findings, not lower N to make the check pass.
             An unresolved refusal MUST be reported as an incomplete review.
