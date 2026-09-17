@@ -1,0 +1,36 @@
+name: ai review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to review
+        required: true
+        type: number
+  pull_request:
+    types: [opened, ready_for_review, labeled]
+
+jobs:
+  review:
+    # The kill switch lives in the repository it guards. Flip REVIEW_ENABLED to "true" to let a
+    # round run at all.
+    if: vars.REVIEW_ENABLED == 'true'
+    # A local reference, not the `@v1` tag the README hands everyone else. On a pull_request event
+    # GitHub resolves this from the merge commit, so a pull request that edits the reviewer prompt
+    # is reviewed by its own version of it rather than by the last release. That is the whole point
+    # of running this here: a released tag would only ever tell us the prompt worked one release
+    # ago. It also means a bad prompt edit judges itself, which is the trade being made knowingly.
+    # A fork's pull request gets no secrets, so this reaches no further than our own branches.
+    uses: ./.github/workflows/review.yml
+    # A called workflow's job permissions are capped by the calling job's. See the README.
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+      actions: read
+    with:
+      pull_request: ${{ inputs.pull_request || github.event.pull_request.number }}
+      model: ${{ vars.REVIEW_MODEL }}
+      debug: ${{ vars.REVIEW_DEBUG == 'true' }}
+    secrets:
+      openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
