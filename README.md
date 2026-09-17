@@ -82,7 +82,9 @@ Granting them on the calling job does not hand the agent a write token. The spli
 - `opened` and `ready_for_review` — the moments a pull request first asks to be read.
 - `labeled` with `inputs.label`. This is how a round is asked for *again*: take the label off and put it back. The `unlabel` job removes it once the round has answered, including when the answer was a failure.
 
-A round is skipped, without failing, when the pull request is a draft, comes from a fork, is a release-please branch, or was opened by `dependabot[bot]`.
+A round is skipped, without failing, when the pull request comes from a fork. GitHub hands a fork's `pull_request` event a read-only token whatever the job asks for, so publishing is impossible whoever asked.
+
+An automatic round is also skipped for a draft, a `release-please--*` branch, or an author ending in `[bot]`. A label or a dispatch overrides all three: asking by hand means you want it reviewed anyway.
 
 An automatic round waits for the repository's other checks to settle first, up to `wait_for_checks` minutes, so the agent is told what the build and the linters already concluded rather than guessing. A round asked for by hand does not wait: whoever added the label or ran the dispatch decided the pull request was ready to read.
 

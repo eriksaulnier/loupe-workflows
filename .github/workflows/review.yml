@@ -99,6 +99,9 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
+          # False for a dispatch, whose github.event.action is null, and for a label. Both are
+          # somebody asking, and the soft skips below defer to them.
+          AUTOMATIC: ${{ github.event.action == 'opened' || github.event.action == 'ready_for_review' }}
         run: |
           echo "LOUPE_HOME=$RUNNER_TEMP/loupe-home" >> "$GITHUB_ENV"
           pr_json=$(gh api "repos/$REPOSITORY/pulls/$PULL_REQUEST")
@@ -107,10 +110,17 @@ jobs:
           head_ref=$(echo "$pr_json" | jq -r .head.ref)
           author=$(echo "$pr_json" | jq -r .user.login)
           skip=false
-          [ "$draft" = "true" ] && skip=true
+          # Not a policy choice: GitHub hands a fork's pull_request event a read-only token whatever
+          # the job asks for, so publishing is impossible however the round was asked for.
           [ "$head_repo" != "$REPOSITORY" ] && skip=true
-          case "$head_ref" in release-please--*) skip=true ;; esac
-          [ "$author" = "dependabot[bot]" ] && skip=true
+          # The rest are defaults for a round nobody asked for. A label or a dispatch is somebody
+          # saying to review it anyway, and overrides them. Any [bot] author rather than dependabot
+          # by name, since each caller runs its own bots.
+          if [ "$AUTOMATIC" = "true" ]; then
+            [ "$draft" = "true" ] && skip=true
+            case "$head_ref" in release-please--*) skip=true ;; esac
+            case "$author" in *"[bot]") skip=true ;; esac
+          fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
       # The default branch at the workspace root, which is the base the reviewing action expects to
