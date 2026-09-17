@@ -200,16 +200,19 @@ jobs:
           loupe show --diff > review/pr.diff
 
       # Under a reusable workflow a check run is named "<caller job> / <called job>", so no literal
-      # list of job names matches. Asking the run which jobs are its own is the only filter that
-      # survives the caller naming its job whatever it likes.
-      - name: Name this run's own jobs
+      # list of job names matches. Listing this run's own jobs does not work either: the publishing
+      # and unlabelling jobs have not been created yet when this step runs, and an earlier round's
+      # jobs on the same commit are not this run's. What holds is the run id — every check run this
+      # workflow has ever left on this commit points at one of its own runs.
+      - name: Name this workflow's runs on the captured head
         if: steps.pr.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          names=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --paginate --jq '.jobs[].name')
-          jq -R -s 'split("\n") | map(select(. != ""))' <<<"$names" > "$RUNNER_TEMP/own-jobs.json"
+          workflow=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .workflow_id)
+          gh api "repos/$REPOSITORY/actions/workflows/$workflow/runs?head_sha=$LOUPE_HEAD_SHA&per_page=100" \
+            --paginate --jq '[.workflow_runs[].id]' | jq -s 'add' > "$RUNNER_TEMP/own-runs.json"
 
       # An automatic round starts the moment the pull request opens, which is before its own checks
       # have said anything. A round asked for by hand does not wait: whoever added the label or ran
@@ -235,8 +238,10 @@ jobs:
               echo "::warning::could not read the check runs on $LOUPE_HEAD_SHA; reviewing without waiting"
               exit 0
             fi
-            others=$(jq --slurpfile own "$RUNNER_TEMP/own-jobs.json" \
-              '[.[].check_runs[] | select(.name as $n | ($own[0] | index($n)) == null)]' <<<"$resp")
+            others=$(jq --slurpfile own "$RUNNER_TEMP/own-runs.json" \
+              '[.[].check_runs[]
+                | select((((.details_url // "") as $u
+                    | ($own[0] | any("/actions/runs/\(.)/" as $p | $u | contains($p))))) | not)]' <<<"$resp")
             total=$(jq 'length' <<<"$others")
             pending=$(jq '[.[] | select(.status != "completed")] | length' <<<"$others")
             if [ "$total" -eq 0 ] && [ "$SECONDS" -lt "$grace" ]; then
@@ -268,10 +273,11 @@ jobs:
           # a POST, which this endpoint answers with 404.
           if resp=$(gh api "repos/$REPOSITORY/commits/$LOUPE_HEAD_SHA/check-runs?per_page=100" \
             --paginate --slurp); then
-            checks=$(jq -r --slurpfile own "$RUNNER_TEMP/own-jobs.json" \
+            checks=$(jq -r --slurpfile own "$RUNNER_TEMP/own-runs.json" \
               '[.[].check_runs[]
                 | select(.status == "completed")
-                | select(.name as $n | ($own[0] | index($n)) == null)
+                | select((((.details_url // "") as $u
+                    | ($own[0] | any("/actions/runs/\(.)/" as $p | $u | contains($p))))) | not)
                 | "\(.name): \(.conclusion)"] | unique | join(", ")' <<<"$resp")
             [ -n "$checks" ] || checks="none finished yet"
           else
