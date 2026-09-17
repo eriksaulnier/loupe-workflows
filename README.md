@@ -63,7 +63,7 @@ Granting them on the calling job does not hand the agent a write token. The spli
 
 | Input | Type | Default | What it does |
 | :--- | :--- | :--- | :--- |
-| `pull_request` | number | *required* | The pull request to review. |
+| `pull_request` | string | *required* | The pull request to review. A string rather than a number, because `workflow_dispatch` delivers its inputs as strings whatever type the caller declares. Passing a number works; it is coerced. |
 | `model` | string | *required* | The OpenRouter model id the agent runs on. |
 | `loupe_version` | string | `v0.7.0` | Tag of the loupe release both jobs install. The archive's sha256 is checked against the release's `checksums.txt`. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |

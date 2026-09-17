@@ -8,7 +8,10 @@ on:
       pull_request:
         description: Pull request number to review
         required: true
-        type: number
+        # A string, not a number: workflow_dispatch hands its inputs over as strings whatever type
+        # the caller declares, and a number input rejects one, failing the run before any job
+        # starts. Every use here interpolates it into a url, an api path or an artifact name.
+        type: string
       model:
         description: OpenRouter model id the reviewing agent runs on
         required: true
