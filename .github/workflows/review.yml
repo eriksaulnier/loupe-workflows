@@ -1,0 +1,517 @@
+name: loupe review
+
+# A reusable workflow, not a composite action. The security property is the job split below, and a
+# composite action runs inside whatever job calls it: one job, one token, the agent holding it.
+on:
+  workflow_call:
+    inputs:
+      pull_request:
+        description: Pull request number to review
+        required: true
+        type: number
+      model:
+        description: OpenRouter model id the reviewing agent runs on
+        required: true
+        type: string
+      loupe_version:
+        description: Tag of the loupe release to install
+        required: false
+        type: string
+        default: v0.7.0
+      label:
+        description: Label that asks for a round, and that the unlabel job takes back off
+        required: false
+        type: string
+        default: ai-review
+      source:
+        description: Source name loupe records and prints in the published review's footer
+        required: false
+        type: string
+        default: loupe-review
+      debug:
+        description: Show the agent's full output in the job log, which is as public as the caller
+        required: false
+        type: boolean
+        default: false
+      max_turns:
+        description: Turn limit for the reviewing agent
+        required: false
+        type: number
+        default: 40
+      instructions_path:
+        description: Path, in the caller's default branch, to that repository's own review instructions
+        required: false
+        type: string
+        default: .github/review-instructions.md
+      wait_for_checks:
+        description: Minutes to wait for the caller's other checks to settle on an automatic round; 0 disables the wait
+        required: false
+        type: number
+        default: 10
+    secrets:
+      openrouter_api_key:
+        description: OpenRouter key the reviewing agent authenticates with
+        required: true
+
+# The reviewing job and the publishing job are split so that the agent never holds a token that can
+# write to the pull request: the action embeds the token it is given into the workspace's .git/config
+# before it starts Claude, and a review is exactly the place untrusted text is read. Publish needs no
+# clone, so the data root travels between them as an artifact.
+#
+# These are a ceiling, not a grant. A called workflow's permissions are capped by the calling job's,
+# so the caller MUST grant at least as much or the publishing job gets a read-only token.
+permissions:
+  contents: read
+
+# One round at a time per pull request. A label added again while a round is running queues behind
+# it rather than racing it, since two rounds publishing at once would post two reviews.
+concurrency:
+  group: review-${{ inputs.pull_request }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # Both ways in are a person's deliberate act, and the automatic rounds are the moments a pull
+    # request first asks to be read. Every other label leaves this alone.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.action == 'opened' ||
+      github.event.action == 'ready_for_review' ||
+      (github.event.action == 'labeled' && github.event.label.name == inputs.label)
+    permissions:
+      contents: read
+      pull-requests: read
+      # For the check runs on the captured commit, which the prompt hands the reviewer as fact.
+      checks: read
+      # For this run's own job names, which the two steps that read those check runs exclude.
+      actions: read
+    outputs:
+      skip: ${{ steps.pr.outputs.skip }}
+    env:
+      # Set in the first step rather than here: the runner context is not available to a job's env.
+      LOUPE_HOME: ""
+      GITHUB_TOKEN: ${{ github.token }}
+      PULL_REQUEST: ${{ inputs.pull_request }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Check pull request eligibility
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "LOUPE_HOME=$RUNNER_TEMP/loupe-home" >> "$GITHUB_ENV"
+          pr_json=$(gh api "repos/$REPOSITORY/pulls/$PULL_REQUEST")
+          draft=$(echo "$pr_json" | jq -r .draft)
+          head_repo=$(echo "$pr_json" | jq -r .head.repo.full_name)
+          head_ref=$(echo "$pr_json" | jq -r .head.ref)
+          author=$(echo "$pr_json" | jq -r .user.login)
+          skip=false
+          [ "$draft" = "true" ] && skip=true
+          [ "$head_repo" != "$REPOSITORY" ] && skip=true
+          case "$head_ref" in release-please--*) skip=true ;; esac
+          [ "$author" = "dependabot[bot]" ] && skip=true
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+      # The default branch at the workspace root, which is the base the reviewing action expects to
+      # run in, and the only source of anything this job treats as instruction: a pull request cannot
+      # change what the reviewer is told, and the workspace it starts in is never its own diff.
+      - name: Check out the default branch
+        if: steps.pr.outputs.skip != 'true'
+        uses: actions/checkout@v7
+        with:
+          # Pinned, because a dispatch can name any branch, and without this the reviewer's
+          # instructions would be read from whichever one was chosen.
+          ref: ${{ github.event.repository.default_branch }}
+          # Capture fetches the pull request's head and base into this clone and asks for their merge
+          # base, which a shallow clone cannot answer.
+          fetch-depth: 0
+
+      # A pinned release rather than a build from source: the caller is any repository, most of which
+      # have no Go toolchain to build loupe with, and a release is the same binary every round.
+      - name: Install loupe
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          LOUPE_VERSION: ${{ inputs.loupe_version }}
+        run: |
+          set -euo pipefail
+          # goreleaser names the archive after the tag with its leading v stripped, so v0.7.0 ships
+          # loupe_0.7.0_linux_amd64.tar.gz.
+          archive="loupe_${LOUPE_VERSION#v}_linux_amd64.tar.gz"
+          base="https://github.com/eriksaulnier/loupe/releases/download/$LOUPE_VERSION"
+          dir="$RUNNER_TEMP/loupe-bin"
+          mkdir -p "$dir" "$RUNNER_TEMP/loupe-dl"
+          cd "$RUNNER_TEMP/loupe-dl"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          if ! grep -F "  $archive" checksums.txt > archive.sha256; then
+            echo "::error::checksums.txt for loupe $LOUPE_VERSION has no entry for $archive"
+            exit 1
+          fi
+          sha256sum -c archive.sha256
+          tar -xzf "$archive" -C "$dir" loupe
+          echo "$dir" >> "$GITHUB_PATH"
+
+      # The only step that needs the clone. Its `--json` result names the run; every later step
+      # passes that reference on through LOUPE_RUN rather than resolving one of its own. The model is
+      # recorded here rather than required by loupe: the caller always knows it, so an empty input is
+      # a configuration error and stops the job.
+      - name: Capture the pull request
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          REVIEW_MODEL: ${{ inputs.model }}
+          REVIEW_SOURCE: ${{ inputs.source }}
+        run: |
+          if [ -z "$REVIEW_MODEL" ]; then
+            echo "::error::the model input is empty; set it to the model id the review step uses"
+            exit 1
+          fi
+          result=$(loupe capture "https://github.com/$REPOSITORY/pull/$PULL_REQUEST" \
+            --source "$REVIEW_SOURCE" --model "$REVIEW_MODEL" --json)
+          {
+            echo "LOUPE_RUN=$(echo "$result" | jq -r .run)"
+            echo "LOUPE_HEAD_SHA=$(echo "$result" | jq -r .target.headSha)"
+          } >> "$GITHUB_ENV"
+
+      # review/ is the pull request: its files at the captured head, with symlinks dropped so no file
+      # tool can follow one out of it, and a copy of the captured diff. `loupe show` does not expose
+      # the diff in its rendered output and the agent has no git, so without this copy it could read
+      # the code but not tell what changed. The workspace around it stays the default branch, which
+      # is what the action runs in.
+      - name: Lay out the review directory
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p review/head
+          git archive "$LOUPE_HEAD_SHA" | tar -x -C review/head
+          find review/head -type l -delete
+          loupe show --diff > review/pr.diff
+
+      # Under a reusable workflow a check run is named "<caller job> / <called job>", so no literal
+      # list of job names matches. Asking the run which jobs are its own is the only filter that
+      # survives the caller naming its job whatever it likes.
+      - name: Name this run's own jobs
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          names=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --paginate --jq '.jobs[].name')
+          jq -R -s 'split("\n") | map(select(. != ""))' <<<"$names" > "$RUNNER_TEMP/own-jobs.json"
+
+      # An automatic round starts the moment the pull request opens, which is before its own checks
+      # have said anything. A round asked for by hand does not wait: whoever added the label or ran
+      # the dispatch decided the pull request was ready to read.
+      - name: Wait for the other checks to settle
+        if: >-
+          steps.pr.outputs.skip != 'true' && inputs.wait_for_checks > 0 &&
+          (github.event.action == 'opened' || github.event.action == 'ready_for_review')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WAIT_MINUTES: ${{ inputs.wait_for_checks }}
+        run: |
+          set -uo pipefail
+          deadline=$(( SECONDS + WAIT_MINUTES * 60 ))
+          # At `opened` the other workflows have often not registered a check run yet, and an empty
+          # first poll would otherwise read as "nothing to wait for" and skip the wait outright.
+          grace=$(( SECONDS + 60 ))
+          while :; do
+            if ! resp=$(gh api "repos/$REPOSITORY/commits/$LOUPE_HEAD_SHA/check-runs" \
+              -f per_page=100 --paginate --slurp); then
+              echo "::warning::could not read the check runs on $LOUPE_HEAD_SHA; reviewing without waiting"
+              exit 0
+            fi
+            others=$(jq --slurpfile own "$RUNNER_TEMP/own-jobs.json" \
+              '[.[].check_runs[] | select(.name as $n | ($own[0] | index($n)) == null)]' <<<"$resp")
+            total=$(jq 'length' <<<"$others")
+            pending=$(jq '[.[] | select(.status != "completed")] | length' <<<"$others")
+            if [ "$total" -eq 0 ] && [ "$SECONDS" -lt "$grace" ]; then
+              sleep 10
+              continue
+            fi
+            if [ "$pending" -eq 0 ]; then
+              echo "every other check on $LOUPE_HEAD_SHA has finished"
+              exit 0
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::warning::$pending check run(s) on $LOUPE_HEAD_SHA still running after $WAIT_MINUTES minute(s); reviewing anyway"
+              exit 0
+            fi
+            sleep 15
+          done
+
+      # What the caller's own checks already say about the commit under review. Without it a reviewer
+      # guesses, and a guess that the build is broken reads as a blocking finding.
+      - name: Read the checks on the captured head
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Settled checks only, and not this run's own jobs: a round triggered by a label runs while
+          # its pull request's checks are still going, and reporting itself as in_progress tells the
+          # reviewer nothing it can rely on.
+          checks=$(gh api "repos/$REPOSITORY/commits/$LOUPE_HEAD_SHA/check-runs" \
+            -f per_page=100 --paginate --slurp \
+            | jq -r --slurpfile own "$RUNNER_TEMP/own-jobs.json" \
+              '[.[].check_runs[]
+                | select(.status == "completed")
+                | select(.name as $n | ($own[0] | index($n)) == null)
+                | "\(.name): \(.conclusion)"] | unique | join(", ")' || true)
+          [ -n "$checks" ] || checks="none finished yet"
+          echo "REVIEW_CHECKS=$checks" >> "$GITHUB_ENV"
+
+      # Whatever the caller wants said about its own code, read from the pinned default-branch
+      # checkout. A missing file is not an error; the base prompt is complete on its own.
+      - name: Read this repository's review instructions
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          INSTRUCTIONS_PATH: ${{ inputs.instructions_path }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$INSTRUCTIONS_PATH" ]; then
+            echo "no $INSTRUCTIONS_PATH in the default branch; reviewing with the base prompt alone"
+            exit 0
+          fi
+          # A random delimiter, because the file is data. A fixed one lets its contents close the
+          # heredoc and set any other environment variable this job goes on to read.
+          delim="REVIEW_INSTRUCTIONS_EOF_$(openssl rand -hex 16)"
+          {
+            echo "REVIEW_INSTRUCTIONS<<$delim"
+            echo "**What this repository asks of a reviewer.** This adds to everything above; where"
+            echo "it is silent, the rules above still hold."
+            echo
+            # printf, not cat: a file with no trailing newline would otherwise leave the delimiter
+            # on its last line, and the block would never close.
+            printf '%s\n' "$(cat "$INSTRUCTIONS_PATH")"
+            echo "$delim"
+          } >> "$GITHUB_ENV"
+
+      # Claude Code, routed through OpenRouter's Anthropic-compatible endpoint. `--allowedTools` is
+      # the only way this step can run `loupe` at all: the action grants no Bash access by default,
+      # and a command outside the list is refused rather than asked about. A blanket `Bash(*)` denial
+      # would outrank those allow rules and take the six with it.
+      - name: Review the pull request
+        if: steps.pr.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          # Without this the action finds no token and asks for an OIDC one instead, which this job
+          # has no id-token permission for, so it fails before the reviewer starts.
+          github_token: ${{ github.token }}
+          anthropic_api_key: ${{ secrets.openrouter_api_key }}
+          # The action hides the agent's output by default, which leaves a failed review with nothing
+          # to read but a turn count. Set the debug input to see it; the log is as public as the
+          # calling repository, so it stays off unless someone is diagnosing a run.
+          show_full_output: ${{ inputs.debug }}
+          claude_args: |
+            --model ${{ inputs.model }}
+            --add-dir review
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "Write,Bash(loupe --help),Bash(loupe capture --help),Bash(loupe add --help),Bash(loupe add:*),Bash(loupe edit --help),Bash(loupe edit:*),Bash(loupe summary --help),Bash(loupe summary:*),Bash(loupe wait --help),Bash(loupe handoff --help),Bash(loupe reply --help),Bash(loupe feedback --help),Bash(loupe show --help),Bash(loupe show:*),Bash(loupe list --help),Bash(loupe review --help),Bash(loupe publish --help)"
+          prompt: |
+            You are reviewing one pull request for this repository. Read `loupe --help` first; every
+            subcommand's `--help` shows its JSON input and its result.
+
+            **Where things are.** You are running in a checkout of this repository's default branch.
+            That is not what you are reviewing; it is the base the pull request is measured against.
+            The pull request is in `$GITHUB_WORKSPACE/review`: `review/head/` holds its files at the
+            commit loupe captured, and `review/pr.diff` is the diff under review. Nothing outside the
+            directory you are running in can be read.
+
+            **What to review.** The diff, and the code it touches. Not the rest of the repository,
+            and not the pull request's description, which you do not have. Report what you would
+            stop a colleague over: a bug, a case the change does not handle, a security or data-loss
+            risk, a contract or documentation statement the change makes untrue. Say nothing about
+            formatting, import order or naming style: this repository's formatters and linters run
+            on every commit, and a finding they would have made is noise.
+
+            **What is already known about this commit.** These checks have finished: ${{ env.REVIEW_CHECKS }}.
+            Take that as fact. A finding that contradicts it — that the build fails, that a lint
+            rejects this, that a referenced action or tool does not exist — is wrong unless you can
+            point at the line that makes it true, and it MUST NOT be filed as blocking.
+
+            **What you can stand behind.** You cannot run commands, run tests or reach the network,
+            so every claim MUST rest on something you read in `review/head/` or `review/pr.diff`.
+            Mark a finding `"blocking": true` only when you traced the failure through the code and
+            can name the path: which input reaches which line and what it does there. Everything you
+            reasoned about but could not confirm is a `question`, not an issue. Set `confidence` to
+            `high` only for what you traced; use `medium` or `low` otherwise, and say in the body
+            what you could not check.
+
+            **How to file.** Write your findings to `findings.json` and run
+            `loupe add --from findings.json`. Do not pipe the JSON in on stdin: a heredoc full of
+            JSON braces is refused before it reaches `loupe`, and working around that costs you
+            turns. The file is one JSON array, each entry with `title`, `body`, `label` (`issue`,
+            `suggestion` or `question`), `blocking`, `confidence`, optional `severity`, and either
+            `location` (`path`, `line`, and `startLine` for a range) or `"general": true`. Paths and
+            lines are the diff's, as `review/pr.diff` gives them; a location that is not in the diff
+            is refused with the nearest valid lines, so correct it or file that finding as
+            `general`. The whole array is stored or none of it is, so a refusal means fixing the one
+            entry and running it again.
+
+            Finish with `loupe summary --body`, or `--from` a file you wrote: two or three sentences on what the change does and
+            what you found, and, when you left something unchecked, one sentence naming it. Write the
+            summary even when you found nothing; a review that says a change looks sound is a result.
+
+            **What not to run.** Only `loupe --help`, a subcommand's `--help`, `loupe add`,
+            `loupe edit`, `loupe summary` and `loupe show` are available to you. Do not run
+            `loupe publish`, `loupe review`, `loupe capture`, `loupe wait`, `loupe handoff`,
+            `loupe feedback`, `loupe reply` or `loupe list`, and do not run git or any other command.
+            A separate step publishes what you filed; you never post to GitHub yourself.
+
+            ${{ env.REVIEW_INSTRUCTIONS }}
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.openrouter_api_key }}
+
+      # The draft the agent filed, handed to the job that may publish it.
+      - name: Upload the data root
+        if: always() && steps.pr.outputs.skip != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: loupe-home-${{ inputs.pull_request }}
+          path: ${{ env.LOUPE_HOME }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  # The only job holding a token that can write to the pull request. No agent runs here, there is no
+  # checkout at all, and the pull request's own content never reaches this workspace: it publishes a
+  # draft loupe already composed, and the body it sends passes the Markdown allowlist before anything
+  # is sent.
+  publish:
+    needs: review
+    if: needs.review.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      # No checkout here, but a private repository caps its REST reads on this scope too, and a read
+      # scope on the job that already holds the write one buys nothing back to drop it.
+      contents: read
+      pull-requests: write
+      # For listing this run's artifacts, which is how the step below knows whether this job has
+      # already published once.
+      actions: read
+    env:
+      LOUPE_HOME: ""
+      GITHUB_TOKEN: ${{ github.token }}
+      PULL_REQUEST: ${{ inputs.pull_request }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Install loupe
+        env:
+          LOUPE_VERSION: ${{ inputs.loupe_version }}
+        run: |
+          set -euo pipefail
+          archive="loupe_${LOUPE_VERSION#v}_linux_amd64.tar.gz"
+          base="https://github.com/eriksaulnier/loupe/releases/download/$LOUPE_VERSION"
+          dir="$RUNNER_TEMP/loupe-bin"
+          mkdir -p "$dir" "$RUNNER_TEMP/loupe-dl"
+          cd "$RUNNER_TEMP/loupe-dl"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          if ! grep -F "  $archive" checksums.txt > archive.sha256; then
+            echo "::error::checksums.txt for loupe $LOUPE_VERSION has no entry for $archive"
+            exit 1
+          fi
+          sha256sum -c archive.sha256
+          tar -xzf "$archive" -C "$dir" loupe
+          echo "$dir" >> "$GITHUB_PATH"
+          echo "LOUPE_HOME=$RUNNER_TEMP/loupe-home" >> "$GITHUB_ENV"
+
+      # Restored rather than re-captured: the run keeps its attempts and receipts, so a receipt
+      # replays and an unknown attempt reconciles instead of posting the review a second time.
+      #
+      # This job's own state comes first. A re-run that started from the reviewing job's snapshot
+      # would hold neither attempt.json nor receipt.json, so it would mint a new publication id and
+      # could post the review GitHub already has.
+      # Asked about rather than attempted: a download of an artifact that is not there fails the step,
+      # and a first attempt would report that failure on every run that went right.
+      - name: Look for this job's publication state
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="loupe-home-published-$PULL_REQUEST"
+          # A failed listing is not an absent artifact. Answering "not found" to both would restore
+          # the pre-publication draft on a retry, which is the double-post this check exists to stop.
+          if ! names=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --paginate --jq '.artifacts[].name'); then
+            echo "could not list this run's artifacts, so whether this job already published is unknown." >&2
+            echo "publishing now could post a review twice; check the pull request before re-running." >&2
+            exit 1
+          fi
+          if grep -qxF "$name" <<<"$names"; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore this job's publication state
+        if: steps.published.outputs.found == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: loupe-home-published-${{ inputs.pull_request }}
+          path: ${{ env.LOUPE_HOME }}
+
+      - name: Refuse a retry that cannot recover its publication state
+        if: steps.published.outputs.found != 'true' && github.run_attempt != 1
+        run: |
+          echo "attempt $GITHUB_RUN_ATTEMPT found no loupe-home-published-$PULL_REQUEST artifact." >&2
+          echo "An earlier attempt may have posted a review this one cannot see; publishing now could post it twice." >&2
+          echo "Check the pull request, then publish by hand from the artifact." >&2
+          exit 1
+
+      - name: Restore the captured draft
+        if: steps.published.outputs.found != 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: loupe-home-${{ inputs.pull_request }}
+          path: ${{ env.LOUPE_HOME }}
+
+      # The run is named rather than resolved: there is no clone here at all, and --unattended
+      # refuses to guess from a branch for exactly that reason.
+      - name: Publish unattended
+        env:
+          LOUPE_RUN: ${{ github.repository }}#${{ inputs.pull_request }}
+        run: loupe publish --unattended --json
+
+      # The run directory is the only evidence of a publication once the runner is gone, so it is
+      # kept whether the publish step succeeded, refused or failed. Overwritten rather than kept per
+      # attempt, so the step above always finds the newest state under one name.
+      - name: Upload the published data root
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          overwrite: true
+          name: loupe-home-published-${{ inputs.pull_request }}
+          path: ${{ env.LOUPE_HOME }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  # The label is the request, so it comes off once the request has been answered — including when the
+  # answer was a failure, since the run happened either way. Putting it back is how the next round is
+  # asked for.
+  unlabel:
+    needs: [review, publish]
+    # Only the round's own label comes off, and only when a label is what asked for the round: an
+    # automatic round and a dispatch have no label to take off, and deleting a label that is not
+    # there is a 404 on somebody else's change. A request the caller's kill switch turned away keeps
+    # its label, so it is still there to answer when the switch goes back on.
+    #
+    # A pull request from a fork is left alone. GitHub hands a `pull_request` event from a fork a
+    # read-only token whatever this job asks for, so the delete below would 403 and fail a run whose
+    # only outcome was the reviewing job declining the fork. Its label stays on, which is honest:
+    # nothing answered the request.
+    if: >-
+      always() && github.event_name == 'pull_request' &&
+      github.event.action == 'labeled' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.label.name == inputs.label && needs.review.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Take the review label off
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ inputs.label }}
+          PULL_REQUEST: ${{ inputs.pull_request }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh api -X DELETE "repos/$REPOSITORY/issues/$PULL_REQUEST/labels/$LABEL" --silent

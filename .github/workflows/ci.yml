@@ -1,0 +1,22 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The whole repository is workflow YAML, so actionlint is the entire test suite. It shells out
+      # to shellcheck for every `run:` block, which is where the real work happens here.
+      - name: Lint the workflows
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
