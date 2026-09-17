@@ -228,8 +228,10 @@ jobs:
           # first poll would otherwise read as "nothing to wait for" and skip the wait outright.
           grace=$(( SECONDS + 60 ))
           while :; do
-            if ! resp=$(gh api "repos/$REPOSITORY/commits/$LOUPE_HEAD_SHA/check-runs" \
-              -f per_page=100 --paginate --slurp); then
+            # per_page in the URL, not -f: gh sends a field as a body parameter and makes the
+            # request a POST, which this endpoint answers with 404.
+            if ! resp=$(gh api "repos/$REPOSITORY/commits/$LOUPE_HEAD_SHA/check-runs?per_page=100" \
+              --paginate --slurp); then
               echo "::warning::could not read the check runs on $LOUPE_HEAD_SHA; reviewing without waiting"
               exit 0
             fi
@@ -262,14 +264,22 @@ jobs:
           # Settled checks only, and not this run's own jobs: a round triggered by a label runs while
           # its pull request's checks are still going, and reporting itself as in_progress tells the
           # reviewer nothing it can rely on.
-          checks=$(gh api "repos/$REPOSITORY/commits/$LOUPE_HEAD_SHA/check-runs" \
-            -f per_page=100 --paginate --slurp \
-            | jq -r --slurpfile own "$RUNNER_TEMP/own-jobs.json" \
+          # per_page in the URL, not -f: gh sends a field as a body parameter and makes the request
+          # a POST, which this endpoint answers with 404.
+          if resp=$(gh api "repos/$REPOSITORY/commits/$LOUPE_HEAD_SHA/check-runs?per_page=100" \
+            --paginate --slurp); then
+            checks=$(jq -r --slurpfile own "$RUNNER_TEMP/own-jobs.json" \
               '[.[].check_runs[]
                 | select(.status == "completed")
                 | select(.name as $n | ($own[0] | index($n)) == null)
-                | "\(.name): \(.conclusion)"] | unique | join(", ")' || true)
-          [ -n "$checks" ] || checks="none finished yet"
+                | "\(.name): \(.conclusion)"] | unique | join(", ")' <<<"$resp")
+            [ -n "$checks" ] || checks="none finished yet"
+          else
+            # Not the same as none finished. Telling the reviewer nothing finished when the read
+            # failed invites a finding about a build that is in fact green.
+            echo "::warning::could not read the check runs on $LOUPE_HEAD_SHA"
+            checks="unknown: this repository's checks could not be read"
+          fi
           echo "REVIEW_CHECKS=$checks" >> "$GITHUB_ENV"
 
       # Whatever the caller wants said about its own code, read from the pinned default-branch
