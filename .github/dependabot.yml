@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # This repository is three repositories' write-token jobs, so a stale action here is stale in all
+  # of them at once and nothing in a caller would show it.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
