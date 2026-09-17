@@ -420,7 +420,10 @@ jobs:
             can name the path: which input reaches which line and what it does there. Everything you
             reasoned about but could not confirm is a `question`, not an issue. Set `confidence` to
             `high` only for what you traced; use `medium` or `low` otherwise, and say in the body
-            what you could not check.
+            what you could not check. `impact` is one or two sentences naming what goes wrong and
+            under what input; a finding whose impact you cannot state that concretely MUST NOT be
+            blocking. Leave `verified` and `references` out: you can neither run the code nor reach
+            the network, so neither field would say anything you have not already said.
 
             Before filing a finding, you MUST look for a guard, caller contract or fallback that
             prevents the claimed failure. You MUST confirm that this change introduces the defect
@@ -430,8 +433,9 @@ jobs:
             **How to file.** Write your findings to `findings.json` and run
             `loupe add --from findings.json --json`. Do not pipe the JSON in on stdin: a heredoc full of
             JSON braces is refused before it reaches `loupe`, and working around that costs you
-            turns. The file is one JSON array, each entry with `title`, `body`, `label` (`issue`,
-            `suggestion` or `question`), `blocking`, `confidence`, optional `severity`, and either
+            turns. The file is one JSON array, each entry with `title`, `body`, `impact`, `label`
+            (`issue`, `suggestion` or `question`), `blocking`, `confidence`, optional `severity`
+            (`critical`, `major`, `minor` or `trivial`, and no other word), and either
             `location` (`path`, `line`, and `startLine` for a range) or `"general": true`. Paths and
             lines are the diff's, as `review/pr.diff` gives them; a location that is not in the diff
             is refused with the nearest valid lines, so correct it or file that finding as
