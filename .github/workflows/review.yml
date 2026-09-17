@@ -204,8 +204,14 @@ jobs:
             echo "::error::the model input is empty; set it to the model id the review step uses"
             exit 1
           fi
-          result=$(loupe capture "https://github.com/$REPOSITORY/pull/$PULL_REQUEST" \
-            --source "$REVIEW_SOURCE" --model "$REVIEW_MODEL" --json)
+          # --json puts a refusal on stdout, which the capture above swallows, so a refused capture
+          # would otherwise reach the log as a bare exit code.
+          if ! result=$(loupe capture "https://github.com/$REPOSITORY/pull/$PULL_REQUEST" \
+            --source "$REVIEW_SOURCE" --model "$REVIEW_MODEL" --json); then
+            echo "::error::loupe capture refused: $(jq -r '.error.message // .' <<<"$result")"
+            echo "$result"
+            exit 1
+          fi
           {
             echo "LOUPE_RUN=$(echo "$result" | jq -r .run)"
             echo "LOUPE_HEAD_SHA=$(echo "$result" | jq -r .target.headSha)"
