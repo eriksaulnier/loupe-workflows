@@ -1,4 +1,4 @@
-# loupe-review
+# loupe-workflows
 
 A reusable GitHub Actions workflow that reviews a pull request with an agent and publishes the result as one GitHub review, using [loupe](https://github.com/eriksaulnier/loupe).
 
@@ -32,7 +32,7 @@ jobs:
     # The kill switch lives in the repository it guards. Flip REVIEW_ENABLED to "true" to let a
     # round run at all.
     if: vars.REVIEW_ENABLED == 'true'
-    uses: eriksaulnier/loupe-review/.github/workflows/review.yml@v1
+    uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@v1
     # A called workflow's job permissions are capped by the calling job's. Read the gotcha below
     # before changing these.
     permissions:
@@ -64,7 +64,7 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | `model` | string | *required* | The OpenRouter model id the agent runs on. |
 | `loupe_version` | string | `v0.7.0` | Tag of the loupe release both jobs install. The archive's sha256 is checked against the release's `checksums.txt`. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |
-| `source` | string | `loupe-review` | The source name loupe records, which appears in the published review's footer. |
+| `source` | string | `loupe-ci` | The source name loupe records, which appears in the published review's footer. |
 | `debug` | boolean | `false` | Show the agent's full output in the job log. The log is as public as the calling repository, so leave it off unless you are diagnosing a run. |
 | `max_turns` | number | `40` | Turn limit for the agent. |
 | `instructions_path` | string | `.github/review-instructions.md` | Path, **in the default branch**, to this repository's own review instructions. |

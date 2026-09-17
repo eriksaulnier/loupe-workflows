@@ -26,8 +26,10 @@ on:
       source:
         description: Source name loupe records and prints in the published review's footer
         required: false
+        # Not the repository's name: this lands in the footer a co-worker reads, where "ci" says a
+        # pipeline wrote the review and "workflows" would say nothing.
         type: string
-        default: loupe-review
+        default: loupe-ci
       debug:
         description: Show the agent's full output in the job log, which is as public as the caller
         required: false
