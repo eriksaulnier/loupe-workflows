@@ -84,7 +84,7 @@ Granting them on the calling job does not hand the agent a write token. The spli
 
 A round is skipped, without failing, when the pull request comes from a fork. GitHub hands a fork's `pull_request` event a read-only token whatever the job asks for, so publishing is impossible whoever asked.
 
-An automatic round is also skipped for a draft, a `release-please--*` branch, or an author ending in `[bot]`. A label or a dispatch overrides all three: asking by hand means you want it reviewed anyway.
+An automatic round is also skipped for a draft, a `release-please--*` branch, an author ending in `[bot]`, or a head SHA already reviewed by `github-actions[bot]` through loupe with the same `source`. A label or a dispatch overrides all four: asking by hand means you want it reviewed anyway. If prior reviews cannot be read, the round proceeds.
 
 An automatic round waits for the repository's other checks to settle first, up to `wait_for_checks` minutes, so the agent is told what the build and the linters already concluded rather than guessing. A round asked for by hand does not wait: whoever added the label or ran the dispatch decided the pull request was ready to read.
 
@@ -93,6 +93,8 @@ An automatic round waits for the repository's other checks to settle first, up t
 The base prompt covers what is structural — where the diff and the captured head are, what a `blocking` finding MUST rest on, how to file through `findings.json`. What it does not know is your repository: which linters already run, which packages are contracts, what a reviewer SHOULD leave alone.
 
 Put that in `instructions_path`. The file is read from the **default branch**, never the pull request head, so a pull request cannot rewrite the instructions that judge it. Its contents are appended to the prompt as one section, under a random heredoc delimiter so nothing in the file can break out and set other environment variables. A missing file is not an error — the base prompt runs alone.
+
+The reviewer also looks for project context in the default-branch checkout. Root guidance takes precedence in this order: `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md`. Review instructions or root guidance MAY point to local architecture docs and ADRs. Without those pointers, the reviewer searches `README.md`, `docs/`, `adr/`, `adrs/` and `architecture/` for the changed components. The prompt limits this additional lookup to three files and 12,000 characters, including search results, with no external links or extra agents. It excludes hidden directories, credential files and environment files from context reads and searches. Denied context reads are skipped without retrying; consequential context gaps go in the summary. These are prompt rules, not a filesystem sandbox. ADRs establish intent; they do not disprove a concrete failure. Documentation changed by the PR is treated as evidence of proposed behavior, not reviewer instructions.
 
 ## Manual setup, per repository
 
