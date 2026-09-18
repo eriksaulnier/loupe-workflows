@@ -87,7 +87,9 @@ Granting them on the calling job does not hand the agent a write token. The spli
 
 A round is skipped, without failing, when the pull request comes from a fork. GitHub hands a fork's `pull_request` event a read-only token whatever the job asks for, so publishing is impossible whoever asked.
 
-An automatic round is also skipped for a draft, a `release-please--*` branch, an author ending in `[bot]`, or a head SHA already reviewed by `github-actions[bot]` through loupe with the same `source`. A label or a dispatch overrides all four: asking by hand means you want it reviewed anyway. If prior reviews cannot be read, the round proceeds.
+An automatic round is also skipped for a draft, a `release-please--*` branch, an author ending in `[bot]`, or a head SHA already reviewed by `github-actions[bot]` through loupe with the same `source`. A label or a dispatch overrides the first three: asking by hand means you want it reviewed anyway.
+
+It overrides the fourth only when the request came first. A round answers a request, so a request that predates its answer is already answered: a round asked for by hand is skipped when a matching review for the same head SHA was published after that round was queued. That is what stops a pull request opened with the label already on from publishing twice on one commit — both events fire, the automatic round publishes, and the labelled round the concurrency group held behind it finds its request already answered. Labelling a commit that was reviewed earlier is asking again, and still runs. If prior reviews cannot be read, the round proceeds.
 
 An automatic round waits for the repository's other checks to settle first, up to `wait_for_checks` minutes, so the agent is told what the build and the linters already concluded rather than guessing. A round asked for by hand does not wait: whoever added the label or ran the dispatch decided the pull request was ready to read.
 

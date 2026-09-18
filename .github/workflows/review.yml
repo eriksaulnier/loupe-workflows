@@ -105,7 +105,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           # False for a dispatch, whose github.event.action is null, and for a label. Both are
-          # somebody asking, and the soft skips below defer to them.
+          # somebody asking, and the soft skips below defer to them. The already-reviewed gate reads
+          # it too, where it decides whether any prior review counts or only one that post-dates
+          # this request.
           AUTOMATIC: ${{ github.event.action == 'opened' || github.event.action == 'ready_for_review' }}
           REVIEW_SOURCE: ${{ inputs.source }}
         run: |
@@ -128,13 +130,24 @@ jobs:
             case "$author" in *"[bot]") skip=true ;; esac
           fi
           # Only a published review from this workflow's bot and source can save another agent run.
-          # Lookup failures MUST leave the review eligible; label and dispatch runs bypass this gate.
-          if [ "$AUTOMATIC" = "true" ] && [ "$skip" = "false" ]; then
+          # A round answers a request, so a request that predates its answer has already been
+          # answered. An automatic round skips any head SHA already reviewed. A label or a dispatch
+          # skips only when the answer landed after the request did, which is a pull request opened
+          # with the label already on, or a label added while an earlier round was still queued.
+          # Labelling a commit that has already been reviewed is somebody asking again, and runs.
+          # Lookup failures MUST leave the round eligible.
+          if [ "$skip" = "false" ]; then
             head_sha=$(echo "$pr_json" | jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))')
-            if reviews=$(gh api "repos/$REPOSITORY/pulls/$PULL_REQUEST/reviews?per_page=100" --paginate --slurp) &&
-              reviewed=$(printf '%s' "$reviews" | jq -r --arg head "$head_sha" --arg source "$REVIEW_SOURCE" '
+            # The run's creation time, not github.run_started_at: a run the concurrency group held
+            # starts after the round ahead of it has published, which would read as this request
+            # post-dating that answer and defeat the check.
+            if queued_at=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at) &&
+              reviews=$(gh api "repos/$REPOSITORY/pulls/$PULL_REQUEST/reviews?per_page=100" --paginate --slurp) &&
+              reviewed=$(printf '%s' "$reviews" | jq -r --arg head "$head_sha" --arg source "$REVIEW_SOURCE" \
+                --arg queued "$queued_at" --arg automatic "$AUTOMATIC" '
                 [.[][]
                   | select(.user.login == "github-actions[bot]" and .commit_id == $head and .submitted_at != null)
+                  | select($automatic == "true" or .submitted_at > $queued)
                   | (.body // "" | split("\n")[]
                     | select(startswith("<!-- loupe-meta v=1 ") and endswith(" -->"))
                     | split(" "))
@@ -142,7 +155,7 @@ jobs:
                     else index("src=" + $source) end)]
                 | length > 0'); then
               if [ "$reviewed" = "true" ]; then
-                echo "already reviewed $head_sha via $REVIEW_SOURCE; skipping automatic round"
+                echo "already reviewed $head_sha via $REVIEW_SOURCE; skipping round"
                 skip=true
               fi
             else
