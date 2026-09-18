@@ -26,7 +26,7 @@ jobs:
     # The kill switch lives in the repository it guards. Flip REVIEW_ENABLED to "true" to let a
     # round run at all.
     if: vars.REVIEW_ENABLED == 'true'
-    uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@v1.0.4 # x-release-please-version
+    uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@v1.1.0 # x-release-please-version
     # A called workflow's job permissions are capped by the calling job's. Read the gotcha below
     # before changing these.
     permissions:
