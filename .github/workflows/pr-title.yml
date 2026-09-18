@@ -18,7 +18,21 @@ jobs:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: amannn/action-semantic-pull-request@v6
+      # The title is untrusted text, so it reaches the shell through the environment and never
+      # through an expression interpolated into the script.
+      - name: Check the length
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [ "${#TITLE}" -gt 72 ]; then
+            echo "::error::The title is ${#TITLE} characters. CONTRIBUTING.md caps it at 72."
+            exit 1
+          fi
+
+      # Runs even when the length check failed, so one round reports every problem with the title
+      # rather than one per push.
+      - if: ${{ !cancelled() }}
+        uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -34,7 +48,8 @@ jobs:
             ci
             chore
             revert
-          subjectPattern: ^(?![A-Z]).+$
+          subjectPattern: ^(?![A-Z])(?!.*\.$).+$
           subjectPatternError: >-
-            The summary "{subject}" starts with an uppercase letter. CONTRIBUTING.md requires
-            `type(scope): summary` with a lowercase, imperative summary.
+            The summary "{subject}" starts with an uppercase letter or ends with a period.
+            CONTRIBUTING.md requires `type(scope): summary` with a lowercase summary and no
+            trailing period.
