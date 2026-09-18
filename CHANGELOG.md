@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/eriksaulnier/loupe-workflows/compare/v1.1.0...v1.1.1) (2026-09-18)
+
+
+### Documentation
+
+* describe releases and pins as they now work ([5ffee4d](https://github.com/eriksaulnier/loupe-workflows/commit/5ffee4d3cf6dbade3ee1c193861e52a9d243bd2f))
+
 ## [1.1.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.0.4...v1.1.0) (2026-09-18)
 
 
