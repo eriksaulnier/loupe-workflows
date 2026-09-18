@@ -42,7 +42,13 @@ jobs:
       openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
-The example pins a tag. The three repositories maintained alongside this one pin the release commit's SHA with the tag in a trailing comment instead, because a tag can be moved under a caller that holds `pull-requests: write` and a SHA cannot; Dependabot bumps both.
+The example pins a tag, which is what to copy into a repository you are setting up. The repositories maintained alongside this one pin the release commit's SHA instead, with the tag beside it in a comment:
+
+```yaml
+uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@<release-sha> # v1.1.0
+```
+
+This is the ref a caller hands `pull-requests: write`, and a tag can be moved after that caller has read it. A SHA cannot. It is also the only pin Dependabot acts on: a moving major tag reads to it as already satisfied, so a caller pinned to one is never told a release happened. Against a SHA, each release arrives as a pull request that bumps the SHA and the comment together — a review, rather than a tag moving overnight under a job that holds write access.
 
 ## Why a reusable workflow and not an action
 

@@ -15,7 +15,7 @@ jobs:
     # The kill switch lives in the repository it guards. Flip REVIEW_ENABLED to "true" to let a
     # round run at all.
     if: vars.REVIEW_ENABLED == 'true'
-    # A local reference, not the `@v1` tag the README hands everyone else. On a pull_request event
+    # A local reference, not the released commit every other caller pins. On a pull_request event
     # GitHub resolves this from the merge commit, so a pull request that edits the reviewer prompt
     # is reviewed by its own version of it rather than by the last release. That is the whole point
     # of running this here: a released tag would only ever tell us the prompt worked one release

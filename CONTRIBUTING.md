@@ -20,4 +20,8 @@ The `pr title` workflow checks what a machine can check: the type, the 72-charac
 
 ## Releases
 
-Callers pin `v1`, and `v1` is moved by hand, as are the version tags behind it. A merge to `main` therefore reaches no caller until someone moves the tag. An agent MUST NOT move `v1`, create a version tag or cut a release.
+release-please cuts them. A merge to `main` opens or updates a release pull request; merging that one tags the version, writes `CHANGELOG.md` and publishes the GitHub Release. The version comes from the conventional commit subjects since the last tag, which is the other reason the pull request title matters: a `feat` takes the minor, a `fix` takes the patch, and anything else takes nothing. A commit body carrying `Release-As: <version>` overrides that, which is how a release gets cut for a change that would not otherwise bump.
+
+An agent MAY merge a release pull request. An agent MUST NOT create or move a tag, edit `.release-please-manifest.json` outside a release pull request, or publish a release any other way.
+
+Callers do not pin a tag. They pin the release commit's SHA with the tag beside it in a comment, `review.yml@<release-sha> # <tag>`, which is what the README explains. The README's own copy-paste example still pins a tag, because that is the right thing to hand someone setting this up for the first time.
