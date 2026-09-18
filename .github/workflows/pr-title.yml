@@ -1,0 +1,55 @@
+name: pr title
+
+# Its own workflow rather than a job in ci.yml. ci.yml's `pull_request` trigger takes the default
+# types, so a corrected title would never re-run the check there, and adding `edited` to ci.yml
+# would re-run actionlint on every edit of a pull request body.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    # The title becomes the subject of the commit that lands on main, which is what release-please
+    # reads to decide the next version. CONTRIBUTING.md names Dependabot as the standing exception:
+    # it prefixes `build` but capitalizes its summary.
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      # The title is untrusted text, so it reaches the shell through the environment and never
+      # through an expression interpolated into the script.
+      - name: Check the length
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [ "${#TITLE}" -gt 72 ]; then
+            echo "::error::The title is ${#TITLE} characters. CONTRIBUTING.md caps it at 72."
+            exit 1
+          fi
+
+      # Runs even when the length check failed, so one round reports every problem with the title
+      # rather than one per push.
+      - if: ${{ !cancelled() }}
+        uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          subjectPattern: ^(?![A-Z])(?!.*\.$).+$
+          subjectPatternError: >-
+            The summary "{subject}" starts with an uppercase letter or ends with a period.
+            CONTRIBUTING.md requires `type(scope): summary` with a lowercase summary and no
+            trailing period.

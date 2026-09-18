@@ -16,7 +16,7 @@ Both MUST follow [Conventional Commits](https://www.conventionalcommits.org): `t
 
 The pull request title matters most, because every merge strategy here takes it as the subject of the commit that lands on `main`. That subject is permanent; the branch's own subjects may not survive the merge.
 
-Nothing enforces any of this. There is no `lefthook.yml` here as there is in `loupe`, and no job reads the title, so a subject that departs from the convention is caught only by whoever is reading. Dependabot is the standing exception, since it prefixes `build` but capitalizes its summary. The titles merged before this file was written do not follow the convention and are not being rewritten.
+The `pr title` workflow checks what a machine can check: the type, the 72-character cap, the lowercase summary and the absence of a trailing period. It skips Dependabot, the standing exception, since Dependabot prefixes `build` but capitalizes its summary. Nothing checks the imperative mood or the commits on the branch — there is no `lefthook.yml` here as there is in `loupe` — so those are caught only by whoever is reading. The titles merged before this file was written do not follow the convention and are not being rewritten.
 
 ## Releases
 
