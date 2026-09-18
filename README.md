@@ -26,7 +26,7 @@ jobs:
     # The kill switch lives in the repository it guards. Flip REVIEW_ENABLED to "true" to let a
     # round run at all.
     if: vars.REVIEW_ENABLED == 'true'
-    uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@v1
+    uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@v1.0.4 # x-release-please-version
     # A called workflow's job permissions are capped by the calling job's. Read the gotcha below
     # before changing these.
     permissions:
@@ -41,6 +41,8 @@ jobs:
     secrets:
       openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
 ```
+
+The example pins a tag. The three repositories maintained alongside this one pin the release commit's SHA with the tag in a trailing comment instead, because a tag can be moved under a caller that holds `pull-requests: write` and a SHA cannot; Dependabot bumps both.
 
 ## Why a reusable workflow and not an action
 

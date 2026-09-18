@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+# Least privilege at the top; only the release job escalates to write.
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # There is no publish job. A release here is the tag, the GitHub Release and the changelog;
+      # the workflow YAML callers resolve is already in the repository at that commit.
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

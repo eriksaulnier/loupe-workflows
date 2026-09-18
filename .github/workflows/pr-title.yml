@@ -1,0 +1,40 @@
+name: pr title
+
+# Its own workflow rather than a job in ci.yml. ci.yml's `pull_request` trigger takes the default
+# types, so a corrected title would never re-run the check there, and adding `edited` to ci.yml
+# would re-run actionlint on every edit of a pull request body.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    # The title becomes the subject of the commit that lands on main, which is what release-please
+    # reads to decide the next version. CONTRIBUTING.md names Dependabot as the standing exception:
+    # it prefixes `build` but capitalizes its summary.
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: >-
+            The summary "{subject}" starts with an uppercase letter. CONTRIBUTING.md requires
+            `type(scope): summary` with a lowercase, imperative summary.
