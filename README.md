@@ -73,7 +73,7 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | :--- | :--- | :--- | :--- |
 | `pull_request` | string | *required* | The pull request to review. A string rather than a number, because `workflow_dispatch` delivers its inputs as strings whatever type the caller declares. Passing a number works; it is coerced. |
 | `model` | string | *required* | The OpenRouter model id the agent runs on. |
-| `loupe_version` | string | `v0.7.0` | Tag of the loupe release both jobs install. The archive's sha256 is checked against the release's `checksums.txt`. |
+| `loupe_version` | string | `v0.9.0` | Tag of the loupe release both jobs install. The archive's sha256 is checked against the release's `checksums.txt`. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |
 | `source` | string | `loupe-ci` | The source name loupe records, which appears in the published review's footer. |
 | `debug` | boolean | `false` | Show the agent's full output in the job log. The log is as public as the calling repository, so leave it off unless you are diagnosing a run. |

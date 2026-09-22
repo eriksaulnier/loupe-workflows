@@ -20,7 +20,7 @@ on:
         description: Tag of the loupe release to install
         required: false
         type: string
-        default: v0.7.0
+        default: v0.9.0
       label:
         description: Label that asks for a round, and that the unlabel job takes back off
         required: false
@@ -449,8 +449,9 @@ jobs:
             `location` (`path`, `line`, and `startLine` for a range) or `"general": true`. Paths and
             lines are the diff's, as `review/pr.diff` gives them; a location that is not in the diff
             is refused with the nearest valid lines, so correct it or file that finding as
-            `general`. The whole array is stored or none of it is, so a refusal means fixing the one
-            entry and running it again.
+            `general`. The whole array is stored or none of it is. A refusal names every bad entry
+            in `details.entries`, each with its first defect, so fix all of them and run it once
+            more rather than one at a time.
 
             You MUST confirm that `loupe add` returned `ok: true` and one finding per input entry.
             Finish with `loupe summary --expect-findings N --json --body`, or `--from` a JSON file
@@ -674,7 +675,19 @@ jobs:
       - name: Publish unattended
         env:
           LOUPE_RUN: ${{ github.repository }}#${{ inputs.pull_request }}
-        run: loupe publish --unattended --json
+        run: |
+          set -euo pipefail
+          # --json puts a refusal on stdout, so a refused publish would otherwise reach the log as
+          # a bare exit code. A replayed receipt has sent false, and is a success: the review was
+          # already posted by an earlier attempt of this job.
+          if ! result=$(loupe publish --unattended --json); then
+            echo "::error::loupe publish refused: $(jq -r '.error.message // .' <<<"$result")"
+            echo "$result"
+            exit 1
+          fi
+          echo "$result"
+          jq -r '"Published \(.reviewUrl) as \(.author // "an unrecorded login")" + (if .replayed then " (replayed from the receipt)" else "" end)' \
+            <<<"$result" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The run directory is the only evidence of a publication once the runner is gone, so it is
       # kept whether the publish step succeeded, refused or failed. Overwritten rather than kept per
