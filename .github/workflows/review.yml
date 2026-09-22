@@ -502,9 +502,11 @@ jobs:
             echo "::error::review/pr.diff is missing, so there is nothing to count the reviewer's reads against"
             exit 1
           fi
-          # A deleted file has no head version to open, so only added and changed files count. A diff
-          # that only deletes leaves grep with no match, which is an empty list and not an error.
-          { grep -E '^\+\+\+ b/' review/pr.diff || true; } | sed 's#^+++ b/##' | sort -u > "$RUNNER_TEMP/changed-files"
+          # A deleted file has no head version to open, so only added and changed files count. A
+          # binary file has no +++ header, only a "Binary files ... differ" record. A diff that only
+          # deletes leaves grep with no match, which is an empty list and not an error.
+          { grep -E '^\+\+\+ b/|^Binary files .* and b/.* differ$' review/pr.diff || true; } \
+            | sed -E 's#^\+\+\+ b/##; s#^Binary files .* and b/(.*) differ$#\1#' | sort -u > "$RUNNER_TEMP/changed-files"
           # Only the Read tool counts as opening a file; a Grep or Glob over review/ shows the agent
           # matching lines, not reading them.
           # The root-guidance lookup tries AGENTS.override.md, AGENTS.md and CLAUDE.md in turn, and
