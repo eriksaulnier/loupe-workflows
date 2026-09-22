@@ -507,9 +507,15 @@ jobs:
           { grep -E '^\+\+\+ b/' review/pr.diff || true; } | sed 's#^+++ b/##' | sort -u > "$RUNNER_TEMP/changed-files"
           # Only the Read tool counts as opening a file; a Grep or Glob over review/ shows the agent
           # matching lines, not reading them.
+          # The root-guidance lookup tries AGENTS.override.md, AGENTS.md and CLAUDE.md in turn, and
+          # each miss is a Read call whose result is an error; a read that returned nothing is not
+          # a read.
           jq -r --arg ws "$GITHUB_WORKSPACE/" '
-            [ .[] | select(.type == "assistant") | .message.content[]?
-              | select(.type == "tool_use" and .name == "Read") | .input.file_path ]
+            [ .[] | select(.type == "user") | .message.content[]?
+              | select(type == "object" and .type == "tool_result" and .is_error == true) | .tool_use_id ] as $failed
+            | [ .[] | select(.type == "assistant") | .message.content[]?
+                | select(.type == "tool_use" and .name == "Read" and (.id | IN($failed[]) | not))
+                | .input.file_path ]
             | map(ltrimstr($ws)) | unique | .[]' "$EXECUTION_FILE" > "$RUNNER_TEMP/read-files"
           changed=$(wc -l < "$RUNNER_TEMP/changed-files")
           changed_read=$(sed -n 's#^review/head/##p' "$RUNNER_TEMP/read-files" | sort -u \

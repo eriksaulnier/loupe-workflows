@@ -117,7 +117,7 @@ The agent's summary says what it checked closely and what it could not check. Th
 Coverage: 4 of 23 changed files read, diff read, 2 context files read, 19 turns, 38 s.
 ```
 
-Changed files are those the diff adds or modifies. A file counts as read when the agent opened it with its Read tool; a Grep or Glob over the pull request shows the agent matching lines, not reading them, and does not count. Context files are reads outside the pull request, such as `AGENTS.md` or a document under `docs/`. The line is added only under a summary the agent wrote, so it never makes a round publishable that would otherwise have been refused as empty. A failure in this step is reported and does not stop the draft from publishing.
+Changed files are those the diff adds or modifies. A file counts as read when the agent opened it with its Read tool and got its contents back; a Read that failed, such as a lookup of a root guidance file that does not exist, does not count, and neither does a Grep or Glob over the pull request, which shows the agent matching lines, not reading them. Context files are reads outside the pull request, such as `AGENTS.md` or a document under `docs/`. The line is added only under a summary the agent wrote, so it never makes a round publishable that would otherwise have been refused as empty. A failure in this step is reported and does not stop the draft from publishing.
 
 The trace itself is uploaded as the `review-trace-<pull request>` artifact: every tool call and result, and the SDK's closing entry with turns, duration and cost. It holds whatever the agent read, so it is as public as the calling repository.
 
