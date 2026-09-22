@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.1.1...v1.2.0) (2026-09-22)
+
+
+### Features
+
+* **review:** append a coverage line computed from the agent's trace ([#11](https://github.com/eriksaulnier/loupe-workflows/issues/11)) ([8148250](https://github.com/eriksaulnier/loupe-workflows/commit/81482502fecc41fdc0495e22e377256ee455f232))
+* **review:** bump loupe to v0.9.0 and use what it reports ([#13](https://github.com/eriksaulnier/loupe-workflows/issues/13)) ([87afca3](https://github.com/eriksaulnier/loupe-workflows/commit/87afca32805b09d40dd98e855885ce84b2144b19))
+
 ## [1.1.1](https://github.com/eriksaulnier/loupe-workflows/compare/v1.1.0...v1.1.1) (2026-09-18)
 
 
