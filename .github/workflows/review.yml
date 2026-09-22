@@ -129,13 +129,11 @@ jobs:
             case "$head_ref" in release-please--*) skip=true ;; esac
             case "$author" in *"[bot]") skip=true ;; esac
           fi
-          # Only a published review from this workflow's bot and source can save another agent run.
-          # A round answers a request, so a request that predates its answer has already been
-          # answered. An automatic round skips any head SHA already reviewed. A label or a dispatch
-          # skips only when the answer landed after the request did, which is a pull request opened
-          # with the label already on, or a label added while an earlier round was still queued.
-          # Labelling a commit that has already been reviewed is somebody asking again, and runs.
-          # Lookup failures MUST leave the round eligible.
+          # Only a published review from this workflow's bot and source can save another agent run. An
+          # automatic round skips any head SHA already reviewed; a label or a dispatch skips only when
+          # the answer landed after the request did, which is a pull request opened with the label
+          # already on, or a label added while an earlier round was still queued. Lookup failures MUST
+          # leave the round eligible.
           if [ "$skip" = "false" ]; then
             head_sha=$(echo "$pr_json" | jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))')
             # The run's creation time, not github.run_started_at: a run the concurrency group held
@@ -233,8 +231,7 @@ jobs:
       # review/ is the pull request: its files at the captured head, with symlinks dropped so no file
       # tool can follow one out of it, and a copy of the captured diff. `loupe show` does not expose
       # the diff in its rendered output and the agent has no git, so without this copy it could read
-      # the code but not tell what changed. The workspace around it stays the default branch, which
-      # is what the action runs in.
+      # the code but not tell what changed.
       - name: Lay out the review directory
         if: steps.pr.outputs.skip != 'true'
         run: |
@@ -244,11 +241,10 @@ jobs:
           find review/head -type l -delete
           loupe show --diff > review/pr.diff
 
-      # Under a reusable workflow a check run is named "<caller job> / <called job>", so no literal
-      # list of job names matches. Listing this run's own jobs does not work either: the publishing
-      # and unlabelling jobs have not been created yet when this step runs, and an earlier round's
-      # jobs on the same commit are not this run's. What holds is the run id — every check run this
-      # workflow has ever left on this commit points at one of its own runs.
+      # Matched by run id: every check run this workflow has ever left on this commit points at one of
+      # its own runs. Under a reusable workflow a check run is named "<caller job> / <called job>", so
+      # no literal list of job names matches, and this run's own jobs cannot be listed either, since
+      # the publishing and unlabelling jobs do not exist yet when this step runs.
       - name: Name this workflow's runs on the captured head
         if: steps.pr.outputs.skip != 'true'
         env:
@@ -541,6 +537,7 @@ jobs:
       # This job's own state comes first. A re-run that started from the reviewing job's snapshot
       # would hold neither attempt.json nor receipt.json, so it would mint a new publication id and
       # could post the review GitHub already has.
+      #
       # Asked about rather than attempted: a download of an artifact that is not there fails the step,
       # and a first attempt would report that failure on every run that went right.
       - name: Look for this job's publication state
