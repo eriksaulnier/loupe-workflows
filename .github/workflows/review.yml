@@ -360,6 +360,7 @@ jobs:
       # and a command outside the list is refused rather than asked about. A blanket `Bash(*)` denial
       # would outrank those allow rules and take the six with it.
       - name: Review the pull request
+        id: review
         if: steps.pr.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
@@ -477,6 +478,85 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.openrouter_api_key }}
+
+      # The summary the agent writes says what it checked, and nothing checks that claim; the coverage
+      # line is what the trace shows. It is an annotation on the review, not the review: a failure here
+      # is reported and does not keep a filed draft from publishing.
+      - name: Record what the reviewer read
+        if: always() && steps.pr.outputs.skip != 'true' && env.LOUPE_RUN != ''
+        continue-on-error: true
+        env:
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          set -euo pipefail
+          if [ ! -s "$EXECUTION_FILE" ]; then
+            if [ "$REVIEW_OUTCOME" = success ]; then
+              echo "::error::the review step succeeded but left no execution file at '$EXECUTION_FILE'"
+              exit 1
+            fi
+            echo "::notice::the review step did not finish and left no execution file, so there is no coverage to record"
+            exit 0
+          fi
+          if [ ! -f review/pr.diff ]; then
+            echo "::error::review/pr.diff is missing, so there is nothing to count the reviewer's reads against"
+            exit 1
+          fi
+          # A deleted file has no head version to open, so only added and changed files count. A diff
+          # that only deletes leaves grep with no match, which is an empty list and not an error.
+          { grep -E '^\+\+\+ b/' review/pr.diff || true; } | sed 's#^+++ b/##' | sort -u > "$RUNNER_TEMP/changed-files"
+          # Only the Read tool counts as opening a file; a Grep or Glob over review/ shows the agent
+          # matching lines, not reading them.
+          jq -r --arg ws "$GITHUB_WORKSPACE/" '
+            [ .[] | select(.type == "assistant") | .message.content[]?
+              | select(.type == "tool_use" and .name == "Read") | .input.file_path ]
+            | map(ltrimstr($ws)) | unique | .[]' "$EXECUTION_FILE" > "$RUNNER_TEMP/read-files"
+          changed=$(wc -l < "$RUNNER_TEMP/changed-files")
+          changed_read=$(sed -n 's#^review/head/##p' "$RUNNER_TEMP/read-files" | sort -u \
+            | comm -12 - "$RUNNER_TEMP/changed-files" | wc -l)
+          context_read=$(grep -c -v '^review/' "$RUNNER_TEMP/read-files" || true)
+          if grep -qx 'review/pr.diff' "$RUNNER_TEMP/read-files"; then diff="read"; else diff="not read"; fi
+          if [ "$context_read" = 1 ]; then context="file"; else context="files"; fi
+          # The closing result entry is absent when the run died, and its fields are null on some
+          # error subtypes; both read as an unfinished run.
+          turns=$(jq -r '[.[] | select(.type == "result")] | last | .num_turns // empty' "$EXECUTION_FILE")
+          ms=$(jq -r '[.[] | select(.type == "result")] | last | .duration_ms // empty' "$EXECUTION_FILE")
+          if [ -n "$turns" ] && [ -n "$ms" ]; then
+            effort="$turns turns, $(( (ms + 500) / 1000 )) s"
+          else
+            effort="the run did not finish"
+          fi
+          line="Coverage: $changed_read of $changed changed files read, diff $diff, $context_read context $context read, $effort."
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
+          draft=$(loupe show --json)
+          summary=$(jq -r '.summary' <<<"$draft")
+          # A draft with no summary and no findings is refused at publish as empty, and a coverage line
+          # alone would make that crash publishable.
+          if [ -z "$summary" ]; then
+            echo "::notice::the agent left no summary, so the coverage line stays out of the draft"
+            exit 0
+          fi
+          included=$(jq -r '[.findings[] | select(.included)] | length' <<<"$draft")
+          jq -n --arg summary "$summary" --arg line "$line" '{summary: ($summary + "\n\n" + $line)}' \
+            > "$RUNNER_TEMP/summary.json"
+          if ! result=$(loupe summary --from "$RUNNER_TEMP/summary.json" --expect-findings "$included" --json); then
+            echo "::error::loupe summary refused the coverage line: $(jq -r '.error.message // .' <<<"$result")"
+            echo "$result"
+            exit 1
+          fi
+
+      # The agent's trace: every tool call and result, and the SDK's closing result entry. This is
+      # what the coverage line above is computed from, kept so a round can be audited after the
+      # fact. It holds whatever the agent read, so it is as public as the calling repository.
+      - name: Upload the reviewer's trace
+        if: always() && steps.review.outputs.execution_file != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: review-trace-${{ inputs.pull_request }}
+          path: ${{ steps.review.outputs.execution_file }}
+          if-no-files-found: ignore
+          overwrite: true
 
       # The draft the agent filed, handed to the job that may publish it.
       - name: Upload the data root
