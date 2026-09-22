@@ -109,6 +109,18 @@ Put that in `instructions_path`. The file is read from the **default branch**, n
 
 The reviewer also looks for project context in the default-branch checkout. Root guidance takes precedence in this order: `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md`. Review instructions or root guidance MAY point to local architecture docs and ADRs. Without those pointers, the reviewer searches `README.md`, `docs/`, `adr/`, `adrs/` and `architecture/` for the changed components. The prompt limits this additional lookup to three files and 12,000 characters, including search results, with no external links or extra agents. It excludes hidden directories, credential files and environment files from context reads and searches. Denied context reads are skipped without retrying; consequential context gaps go in the summary. These are prompt rules, not a filesystem sandbox. ADRs establish intent; they do not disprove a concrete failure. Documentation changed by the PR is treated as evidence of proposed behavior, not reviewer instructions.
 
+## What a round says about itself
+
+The agent's summary says what it checked closely and what it could not check. That is its own claim, so the `review` job appends one line computed from the agent's trace:
+
+```
+Coverage: 4 of 23 changed files read, diff read, 2 context files read, 19 turns, 38 s.
+```
+
+Changed files are those the diff adds or modifies. A file counts as read when the agent opened it with its Read tool and got its contents back; a Read that failed, such as a lookup of a root guidance file that does not exist, does not count, and neither does a Grep or Glob over the pull request, which shows the agent matching lines, not reading them. Context files are reads outside the pull request, such as `AGENTS.md` or a document under `docs/`. The line is added only under a summary the agent wrote, so it never makes a round publishable that would otherwise have been refused as empty. A failure in this step is reported and does not stop the draft from publishing.
+
+The trace itself is uploaded as the `review-trace-<pull request>` artifact: every tool call and result, and the SDK's closing entry with turns, duration and cost. It holds whatever the agent read, so it is as public as the calling repository.
+
 ## Manual setup, per repository
 
 None of this is created for you:
