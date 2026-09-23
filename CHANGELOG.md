@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.2.0...v1.3.0) (2026-09-23)
+
+
+### Features
+
+* **review:** bump loupe to v0.10.0 ([#14](https://github.com/eriksaulnier/loupe-workflows/issues/14)) ([e600804](https://github.com/eriksaulnier/loupe-workflows/commit/e600804b27d27cdea8852960452416ec05916617))
+
 ## [1.2.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.1.1...v1.2.0) (2026-09-22)
 
 
