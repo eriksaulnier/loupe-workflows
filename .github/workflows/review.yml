@@ -231,7 +231,8 @@ jobs:
       # review/ is the pull request: its files at the captured head, with symlinks dropped so no file
       # tool can follow one out of it, and a copy of the captured diff. `loupe show` does not expose
       # the diff in its rendered output and the agent has no git, so without this copy it could read
-      # the code but not tell what changed.
+      # the code but not tell what changed. files.txt lists the head's files, because the agent has
+      # no file-listing tool, and a model that does not think to run ls guesses at paths instead.
       - name: Lay out the review directory
         if: steps.pr.outputs.skip != 'true'
         run: |
@@ -239,6 +240,7 @@ jobs:
           mkdir -p review/head
           git archive "$LOUPE_HEAD_SHA" | tar -x -C review/head
           find review/head -type l -delete
+          (cd review/head && find . -type f | sed 's#^\./##' | LC_ALL=C sort) > review/files.txt
           loupe show --diff > review/pr.diff
 
       # Matched by run id: every check run this workflow has ever left on this commit points at one of
@@ -384,7 +386,9 @@ jobs:
             **Where things are.** You are running in a checkout of this repository's default branch.
             That is not what you are reviewing; it is the base the pull request is measured against.
             The pull request is in `$GITHUB_WORKSPACE/review`: `review/head/` holds its files at the
-            commit loupe captured, and `review/pr.diff` is the diff under review. You MUST NOT read
+            commit loupe captured, and `review/pr.diff` is the diff under review.
+            `review/files.txt` lists every file in `review/head/`, one path per line relative to it.
+            You SHOULD look up a path there instead of guessing one. You MUST NOT read
             outside `$GITHUB_WORKSPACE`. Within it, you MUST restrict source reads to `review/`
             and project-context reads to the paths permitted below.
 
