@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.3.0...v1.4.0) (2026-09-24)
+
+
+### Features
+
+* **review:** list the head's files and count every file read ([#16](https://github.com/eriksaulnier/loupe-workflows/issues/16)) ([edad758](https://github.com/eriksaulnier/loupe-workflows/commit/edad75856354f5ec4442dfe52f98dc7fbadcc7d2))
+
 ## [1.3.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.2.0...v1.3.0) (2026-09-23)
 
 
