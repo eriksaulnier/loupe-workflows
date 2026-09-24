@@ -231,7 +231,8 @@ jobs:
       # review/ is the pull request: its files at the captured head, with symlinks dropped so no file
       # tool can follow one out of it, and a copy of the captured diff. `loupe show` does not expose
       # the diff in its rendered output and the agent has no git, so without this copy it could read
-      # the code but not tell what changed.
+      # the code but not tell what changed. files.txt lists the head's files, because the agent has
+      # no file-listing tool, and a model that does not think to run ls guesses at paths instead.
       - name: Lay out the review directory
         if: steps.pr.outputs.skip != 'true'
         run: |
@@ -239,6 +240,7 @@ jobs:
           mkdir -p review/head
           git archive "$LOUPE_HEAD_SHA" | tar -x -C review/head
           find review/head -type l -delete
+          (cd review/head && find . -type f | sed 's#^\./##' | LC_ALL=C sort) > review/files.txt
           loupe show --diff > review/pr.diff
 
       # Matched by run id: every check run this workflow has ever left on this commit points at one of
@@ -384,7 +386,9 @@ jobs:
             **Where things are.** You are running in a checkout of this repository's default branch.
             That is not what you are reviewing; it is the base the pull request is measured against.
             The pull request is in `$GITHUB_WORKSPACE/review`: `review/head/` holds its files at the
-            commit loupe captured, and `review/pr.diff` is the diff under review. You MUST NOT read
+            commit loupe captured, and `review/pr.diff` is the diff under review.
+            `review/files.txt` lists every file in `review/head/`, one path per line relative to it.
+            You SHOULD look up a path there instead of guessing one. You MUST NOT read
             outside `$GITHUB_WORKSPACE`. Within it, you MUST restrict source reads to `review/`
             and project-context reads to the paths permitted below.
 
@@ -523,9 +527,43 @@ jobs:
           changed=$(wc -l < "$RUNNER_TEMP/changed-files")
           changed_read=$(sed -n 's#^review/head/##p' "$RUNNER_TEMP/read-files" | sort -u \
             | comm -12 - "$RUNNER_TEMP/changed-files" | wc -l)
+          # Counted apart from the changed files, so a read of the code a change calls into shows.
+          other_read=$(sed -n 's#^review/head/##p' "$RUNNER_TEMP/read-files" | sort -u \
+            | comm -23 - "$RUNNER_TEMP/changed-files" | wc -l)
+          # Failed calls spend turns from the same --max-turns limit the reads do. A miss in the
+          # root-guidance lookup is the prompt's own probe, not waste, so it is left out.
+          failed=$(jq --arg ws "$GITHUB_WORKSPACE/" '
+            [ .[] | select(.type == "assistant") | .message.content[]?
+              | select(.type == "tool_use" and .name == "Read"
+                and (.input.file_path | ltrimstr($ws) | IN("AGENTS.override.md", "AGENTS.md", "CLAUDE.md")))
+              | .id ] as $probes
+            | [ .[] | select(.type == "user") | .message.content[]?
+                | select(type == "object" and .type == "tool_result" and .is_error == true)
+                | select(.tool_use_id | IN($probes[]) | not) ]
+            | length' "$EXECUTION_FILE")
           context_read=$(grep -c -v '^review/' "$RUNNER_TEMP/read-files" || true)
+          # Read-only shell commands such as grep, sed -n and cat are auto-approved whatever
+          # --allowedTools says, and some models trace code with them instead of Read, so those reads
+          # never reach the counts above. A refused command never ran; one that ran and exited non-zero
+          # is an error too, but its result starts with its exit code.
+          shell_run=$(jq '
+            def text: if type == "array" then map(.text? // "") | join("") elif type == "string" then . else "" end;
+            [ .[] | select(.type == "user") | .message.content[]?
+              | select(type == "object" and .type == "tool_result" and .is_error == true
+                and (.content | text | startswith("Exit code") | not))
+              | .tool_use_id ] as $refused
+            | [ .[] | select(.type == "assistant") | .message.content[]?
+                | select(.type == "tool_use" and .name == "Bash" and (.id | IN($refused[]) | not))
+                | select(.input.command | test("^\\s*(cd\\s+\\S+\\s*(;|&&)\\s*)?loupe(\\s|$)") | not) ]
+            | length' "$EXECUTION_FILE")
           if grep -qx 'review/pr.diff' "$RUNNER_TEMP/read-files"; then diff="read"; else diff="not read"; fi
           if [ "$context_read" = 1 ]; then context="file"; else context="files"; fi
+          if [ "$other_read" = 1 ]; then other="file"; else other="files"; fi
+          case "$failed" in
+            0) failures="" ;;
+            1) failures=", 1 failed tool call" ;;
+            *) failures=", $failed failed tool calls" ;;
+          esac
           # The closing result entry is absent when the run died, and its fields are null on some
           # error subtypes; both read as an unfinished run.
           turns=$(jq -r '[.[] | select(.type == "result")] | last | .num_turns // empty' "$EXECUTION_FILE")
@@ -535,7 +573,12 @@ jobs:
           else
             effort="the run did not finish"
           fi
-          line="Coverage: $changed_read of $changed changed files read, diff $diff, $context_read context $context read, $effort."
+          case "$shell_run" in
+            0) shell="" ;;
+            1) shell=", 1 other shell command" ;;
+            *) shell=", $shell_run other shell commands" ;;
+          esac
+          line="Coverage: $changed_read of $changed changed files read, $other_read other head $other read$shell, diff $diff, $context_read context $context read$failures, $effort."
           echo "$line"
           echo "$line" >> "$GITHUB_STEP_SUMMARY"
           draft=$(loupe show --json)
