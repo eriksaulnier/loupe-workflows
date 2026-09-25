@@ -68,8 +68,10 @@ on:
 permissions:
   contents: read
 
-# One round at a time per pull request. A label added again while a round is running queues behind
-# it rather than racing it, since two rounds publishing at once would post two reviews.
+# One round at a time per pull request. A label added again or a push while a round is running
+# queues behind it rather than racing it, since two rounds publishing at once would post two
+# reviews. GitHub holds at most one pending run per group and cancels the older one, so a burst of
+# pushes costs the round in flight plus one round for the newest head.
 concurrency:
   group: review-${{ inputs.pull_request }}
   cancel-in-progress: false
@@ -78,11 +80,13 @@ jobs:
   review:
     runs-on: ubuntu-latest
     # Both ways in are a person's deliberate act, and the automatic rounds are the moments a pull
-    # request first asks to be read. Every other label leaves this alone.
+    # request first asks to be read, plus each push when the caller subscribes to `synchronize`.
+    # Every other label leaves this alone.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.action == 'opened' ||
       github.event.action == 'ready_for_review' ||
+      github.event.action == 'synchronize' ||
       (github.event.action == 'labeled' && github.event.label.name == inputs.label)
     permissions:
       contents: read
@@ -108,7 +112,9 @@ jobs:
           # somebody asking, and the soft skips below defer to them. The already-reviewed gate reads
           # it too, where it decides whether any prior review counts or only one that post-dates
           # this request.
-          AUTOMATIC: ${{ github.event.action == 'opened' || github.event.action == 'ready_for_review' }}
+          AUTOMATIC: >-
+            ${{ github.event.action == 'opened' || github.event.action == 'ready_for_review' ||
+            github.event.action == 'synchronize' }}
           REVIEW_SOURCE: ${{ inputs.source }}
         run: |
           echo "LOUPE_HOME=$RUNNER_TEMP/loupe-home" >> "$GITHUB_ENV"
@@ -257,21 +263,23 @@ jobs:
           gh api "repos/$REPOSITORY/actions/workflows/$workflow/runs?head_sha=$LOUPE_HEAD_SHA&per_page=100" \
             --paginate --jq '[.workflow_runs[].id]' | jq -s 'add' > "$RUNNER_TEMP/own-runs.json"
 
-      # An automatic round starts the moment the pull request opens, which is before its own checks
-      # have said anything. A round asked for by hand does not wait: whoever added the label or ran
-      # the dispatch decided the pull request was ready to read.
+      # An automatic round starts the moment the pull request opens or a push lands, which is before
+      # its own checks have said anything. A round asked for by hand does not wait: whoever added
+      # the label or ran the dispatch decided the pull request was ready to read.
       - name: Wait for the other checks to settle
         if: >-
           steps.pr.outputs.skip != 'true' && inputs.wait_for_checks > 0 &&
-          (github.event.action == 'opened' || github.event.action == 'ready_for_review')
+          (github.event.action == 'opened' || github.event.action == 'ready_for_review' ||
+          github.event.action == 'synchronize')
         env:
           GH_TOKEN: ${{ github.token }}
           WAIT_MINUTES: ${{ inputs.wait_for_checks }}
         run: |
           set -uo pipefail
           deadline=$(( SECONDS + WAIT_MINUTES * 60 ))
-          # At `opened` the other workflows have often not registered a check run yet, and an empty
-          # first poll would otherwise read as "nothing to wait for" and skip the wait outright.
+          # At `opened` or `synchronize` the other workflows have often not registered a check run
+          # yet, and an empty first poll would otherwise read as "nothing to wait for" and skip the
+          # wait outright.
           grace=$(( SECONDS + 60 ))
           while :; do
             # per_page in the URL, not -f: gh sends a field as a body parameter and makes the
