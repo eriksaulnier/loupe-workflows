@@ -19,7 +19,7 @@ on:
         required: true
         type: number
   pull_request:
-    types: [opened, ready_for_review, labeled]
+    types: [opened, ready_for_review, synchronize, labeled]
 
 jobs:
   review:
@@ -91,7 +91,8 @@ Granting them on the calling job does not hand the agent a write token. The spli
 
 - `workflow_dispatch` naming a pull request.
 - `opened` and `ready_for_review` — the moments a pull request first asks to be read.
-- `labeled` with `inputs.label`. This is how a round is asked for *again*: take the label off and put it back. The `unlabel` job removes it once the round has answered, including when the answer was a failure.
+- `synchronize`, when the caller lists it — each push to an open pull request. One round runs at a time per pull request, and GitHub keeps only the newest pending run, so a burst of pushes costs the round in flight plus one round for the latest head. Leave it out of the caller's `types` to review only on open and on request.
+- `labeled` with `inputs.label`. This is how a round is asked for *again*, for a head that was already reviewed: take the label off and put it back. The `unlabel` job removes it once the round has answered, including when the answer was a failure.
 
 A round is skipped, without failing, when the pull request comes from a fork. GitHub hands a fork's `pull_request` event a read-only token whatever the job asks for, so publishing is impossible whoever asked.
 
