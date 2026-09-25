@@ -81,6 +81,7 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | `max_turns` | number | `40` | Turn limit for the agent. |
 | `instructions_path` | string | `.github/review-instructions.md` | Path, **in the default branch**, to this repository's own review instructions. |
 | `wait_for_checks` | number | `10` | Minutes to wait for the repository's other checks to settle before reviewing an automatic round. `0` disables the wait. |
+| `sticky` | boolean | `false` | Edit one review per pull request in place instead of posting a new one each round. The newest round sits on top and earlier rounds collapse below it. The review is found by the `source` name, so `source` MUST NOT change between rounds. Sticky reviews post no inline comments. |
 
 ### Secrets
 
