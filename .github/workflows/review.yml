@@ -48,6 +48,11 @@ on:
         required: false
         type: number
         default: 10
+      sticky:
+        description: Edit one review per pull request in place instead of posting a new review each round
+        required: false
+        type: boolean
+        default: false
     secrets:
       openrouter_api_key:
         description: OpenRouter key the reviewing agent authenticates with
@@ -140,19 +145,45 @@ jobs:
             # The run's creation time, not github.run_started_at: a run the concurrency group held
             # starts after the round ahead of it has published, which would read as this request
             # post-dating that answer and defeat the check.
+            # A sticky review keeps its first round's commit_id and submitted_at through every edit, so
+            # it is matched on its footer's commit, the newest round's, and timed by its last edit.
             if queued_at=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at) &&
               reviews=$(gh api "repos/$REPOSITORY/pulls/$PULL_REQUEST/reviews?per_page=100" --paginate --slurp) &&
-              reviewed=$(printf '%s' "$reviews" | jq -r --arg head "$head_sha" --arg source "$REVIEW_SOURCE" \
+              matches=$(printf '%s' "$reviews" | jq -c --arg head "$head_sha" --arg source "$REVIEW_SOURCE" \
                 --arg queued "$queued_at" --arg automatic "$AUTOMATIC" '
                 [.[][]
-                  | select(.user.login == "github-actions[bot]" and .commit_id == $head and .submitted_at != null)
-                  | select($automatic == "true" or .submitted_at > $queued)
-                  | (.body // "" | split("\n")[]
-                    | select(startswith("<!-- loupe-meta v=1 ") and endswith(" -->"))
-                    | split(" "))
-                  | select(if $source == "" then all(.[]; startswith("src=") | not)
-                    else index("src=" + $source) end)]
-                | length > 0'); then
+                  | select(.user.login == "github-actions[bot]" and .submitted_at != null)
+                  | (.body // "" | split("\n")) as $lines
+                  | ($lines[] | select(startswith("<!-- loupe-meta v=1 ") and endswith(" -->")) | split(" ")) as $meta
+                  | select(if $source == "" then all($meta[]; startswith("src=") | not)
+                    else $meta | index("src=" + $source) end)
+                  | if any($meta[]; startswith("sticky=")) then
+                      select([$lines[] | capture("^reviewed `(?<sha>[0-9a-f]{7,40})`").sha] | last as $sha
+                        | $sha != null and ($head | startswith($sha)))
+                      | {sticky: true, node_id}
+                    else
+                      select(.commit_id == $head and ($automatic == "true" or .submitted_at > $queued))
+                      | {sticky: false, node_id}
+                    end]'); then
+              reviewed=false
+              if jq -e --arg automatic "$AUTOMATIC" 'any(.[]; (.sticky | not) or $automatic == "true")' \
+                <<<"$matches" >/dev/null; then
+                reviewed=true
+              else
+                for id in $(jq -r '.[].node_id' <<<"$matches"); do
+                  # $id is a GraphQL variable, not a shell one.
+                  # shellcheck disable=SC2016
+                  if edited=$(gh api graphql -f id="$id" \
+                    -f query='query($id: ID!) { node(id: $id) { ... on PullRequestReview { lastEditedAt submittedAt } } }' \
+                    --jq '.data.node | .lastEditedAt // .submittedAt'); then
+                    if [[ "$edited" > "$queued_at" ]]; then
+                      reviewed=true
+                    fi
+                  else
+                    echo "::warning::could not read when sticky review $id was last edited"
+                  fi
+                done
+              fi
               if [ "$reviewed" = "true" ]; then
                 echo "already reviewed $head_sha via $REVIEW_SOURCE; skipping round"
                 skip=true
@@ -694,18 +725,24 @@ jobs:
       - name: Publish unattended
         env:
           LOUPE_RUN: ${{ github.repository }}#${{ inputs.pull_request }}
+          STICKY: ${{ inputs.sticky }}
         run: |
           set -euo pipefail
+          # Sticky mode takes no --inline: it allows only none, which is the default. It finds the
+          # review to edit by the source's name, which is why the source input MUST NOT change
+          # between rounds.
+          sticky=()
+          if [ "$STICKY" = "true" ]; then sticky=(--sticky); fi
           # --json puts a refusal on stdout, so a refused publish would otherwise reach the log as
           # a bare exit code. A replayed receipt has sent false, and is a success: the review was
           # already posted by an earlier attempt of this job.
-          if ! result=$(loupe publish --unattended --json); then
+          if ! result=$(loupe publish --unattended --json "${sticky[@]}"); then
             echo "::error::loupe publish refused: $(jq -r '.error.message // .' <<<"$result")"
             echo "$result"
             exit 1
           fi
           echo "$result"
-          jq -r '"Published \(.reviewUrl) as \(.author // "an unrecorded login")" + (if .replayed then " (replayed from the receipt)" else "" end)' \
+          jq -r '(if .edited then "Edited" else "Published" end) + " \(.reviewUrl) as \(.author // "an unrecorded login")" + (if .replayed then " (replayed from the receipt)" else "" end)' \
             <<<"$result" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The run directory is the only evidence of a publication once the runner is gone, so it is
