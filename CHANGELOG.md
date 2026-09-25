@@ -5,7 +5,7 @@
 
 ### ⚠ BREAKING CHANGES
 
-* **review:** the loupe_version input is removed. A caller that still passes it fails with "Invalid input". Drop it from the caller's
+* **review:** the loupe_version input is removed. A caller that still passes it fails with "Invalid input". Drop it from the caller's `with:` block.
 
 ### Features
 
