@@ -16,11 +16,6 @@ on:
         description: OpenRouter model id the reviewing agent runs on
         required: true
         type: string
-      loupe_version:
-        description: Tag of the loupe release to install
-        required: false
-        type: string
-        default: v0.10.0
       label:
         description: Label that asks for a round, and that the unlabel job takes back off
         required: false
@@ -183,29 +178,15 @@ jobs:
           fetch-depth: 0
 
       # A pinned release rather than a build from source: the caller is any repository, most of which
-      # have no Go toolchain to build loupe with, and a release is the same binary every round.
+      # have no Go toolchain to build loupe with, and a release is the same binary every round. The
+      # action's version default moves with each loupe release, so pinning its sha pins the binary.
       - name: Install loupe
         if: steps.pr.outputs.skip != 'true'
-        env:
-          LOUPE_VERSION: ${{ inputs.loupe_version }}
-        run: |
-          set -euo pipefail
-          # goreleaser names the archive after the tag with its leading v stripped, so v0.7.0 ships
-          # loupe_0.7.0_linux_amd64.tar.gz.
-          archive="loupe_${LOUPE_VERSION#v}_linux_amd64.tar.gz"
-          base="https://github.com/eriksaulnier/loupe/releases/download/$LOUPE_VERSION"
-          dir="$RUNNER_TEMP/loupe-bin"
-          mkdir -p "$dir" "$RUNNER_TEMP/loupe-dl"
-          cd "$RUNNER_TEMP/loupe-dl"
-          curl -fsSL -o "$archive" "$base/$archive"
-          curl -fsSL -o checksums.txt "$base/checksums.txt"
-          if ! grep -F "  $archive" checksums.txt > archive.sha256; then
-            echo "::error::checksums.txt for loupe $LOUPE_VERSION has no entry for $archive"
-            exit 1
-          fi
-          sha256sum -c archive.sha256
-          tar -xzf "$archive" -C "$dir" loupe
-          echo "$dir" >> "$GITHUB_PATH"
+        uses: eriksaulnier/loupe@56430c6348364ccd3be459672ad2edbc8e446985 # main, after v0.10.0
+
+      - name: Show loupe version
+        if: steps.pr.outputs.skip != 'true'
+        run: loupe --version
 
       # The only step that needs the clone. Its `--json` result names the run; every later step
       # passes that reference on through LOUPE_RUN rather than resolving one of its own. The model is
@@ -651,24 +632,11 @@ jobs:
       REPOSITORY: ${{ github.repository }}
     steps:
       - name: Install loupe
-        env:
-          LOUPE_VERSION: ${{ inputs.loupe_version }}
+        uses: eriksaulnier/loupe@56430c6348364ccd3be459672ad2edbc8e446985 # main, after v0.10.0
+
+      - name: Set up loupe home
         run: |
-          set -euo pipefail
-          archive="loupe_${LOUPE_VERSION#v}_linux_amd64.tar.gz"
-          base="https://github.com/eriksaulnier/loupe/releases/download/$LOUPE_VERSION"
-          dir="$RUNNER_TEMP/loupe-bin"
-          mkdir -p "$dir" "$RUNNER_TEMP/loupe-dl"
-          cd "$RUNNER_TEMP/loupe-dl"
-          curl -fsSL -o "$archive" "$base/$archive"
-          curl -fsSL -o checksums.txt "$base/checksums.txt"
-          if ! grep -F "  $archive" checksums.txt > archive.sha256; then
-            echo "::error::checksums.txt for loupe $LOUPE_VERSION has no entry for $archive"
-            exit 1
-          fi
-          sha256sum -c archive.sha256
-          tar -xzf "$archive" -C "$dir" loupe
-          echo "$dir" >> "$GITHUB_PATH"
+          loupe --version
           echo "LOUPE_HOME=$RUNNER_TEMP/loupe-home" >> "$GITHUB_ENV"
 
       # Restored rather than re-captured: the run keeps its attempts and receipts, so a receipt

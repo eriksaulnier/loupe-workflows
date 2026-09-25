@@ -50,6 +50,8 @@ uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@<release-sha> # 
 
 This is the ref a caller hands `pull-requests: write`, and a tag can be moved after that caller has read it. A SHA cannot. It is also the only pin Dependabot acts on: a moving major tag reads to it as already satisfied, so a caller pinned to one is never told a release happened. Against a SHA, each release arrives as a pull request that bumps the SHA and the comment together — a review, rather than a tag moving overnight under a job that holds write access.
 
+The loupe binary is pinned the same way. Both jobs install it with loupe's own action at a pinned SHA, and that SHA decides which release runs. The action checks the archive's sha256 against the release's `checksums.txt`. There is no input to choose another version. Moving to a new loupe release is a change to that pin.
+
 ## Why a reusable workflow and not an action
 
 The agent never holds a token that can write to the pull request.
@@ -73,7 +75,6 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | :--- | :--- | :--- | :--- |
 | `pull_request` | string | *required* | The pull request to review. A string rather than a number, because `workflow_dispatch` delivers its inputs as strings whatever type the caller declares. Passing a number works; it is coerced. |
 | `model` | string | *required* | The OpenRouter model id the agent runs on. |
-| `loupe_version` | string | `v0.10.0` | Tag of the loupe release both jobs install. The archive's sha256 is checked against the release's `checksums.txt`. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |
 | `source` | string | `loupe-ci` | The source name loupe records, which appears in the published review's footer. |
 | `debug` | boolean | `false` | Show the agent's full output in the job log. The log is as public as the calling repository, so leave it off unless you are diagnosing a run. |
