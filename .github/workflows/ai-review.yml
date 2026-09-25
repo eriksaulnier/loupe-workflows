@@ -32,5 +32,6 @@ jobs:
       pull_request: ${{ inputs.pull_request || github.event.pull_request.number }}
       model: ${{ vars.REVIEW_MODEL }}
       debug: ${{ vars.REVIEW_DEBUG == 'true' }}
+      sticky: true
     secrets:
       openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
