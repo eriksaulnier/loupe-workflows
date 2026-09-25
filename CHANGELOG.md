@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.4.0...v2.0.0) (2026-09-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **review:** the loupe_version input is removed. A caller that still passes it fails with "Invalid input". Drop it from the caller's `with:` block.
+
+### Features
+
+* **review:** add a sticky input that edits one review per PR ([#25](https://github.com/eriksaulnier/loupe-workflows/issues/25)) ([2f56e70](https://github.com/eriksaulnier/loupe-workflows/commit/2f56e7065d7d74c132f7b370ea196536362ae858)), closes [#22](https://github.com/eriksaulnier/loupe-workflows/issues/22)
+* **review:** install loupe with its own pinned action ([#20](https://github.com/eriksaulnier/loupe-workflows/issues/20)) ([b8c115d](https://github.com/eriksaulnier/loupe-workflows/commit/b8c115d1352475411c30322525d53f3912da6fba))
+* **review:** re-pin loupe to v0.11.0 ([#24](https://github.com/eriksaulnier/loupe-workflows/issues/24)) ([ccc2bdd](https://github.com/eriksaulnier/loupe-workflows/commit/ccc2bdd009175482ffd5e45dd7b964288b4a1dcd))
+* **review:** review each push to an open pull request ([#18](https://github.com/eriksaulnier/loupe-workflows/issues/18)) ([f9f38bd](https://github.com/eriksaulnier/loupe-workflows/commit/f9f38bdeafb42853a50322b0278ec43a448999f7))
+
 ## [1.4.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.3.0...v1.4.0) (2026-09-24)
 
 
