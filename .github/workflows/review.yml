@@ -776,12 +776,17 @@ jobs:
         env:
           LOUPE_RUN: ${{ github.repository }}#${{ inputs.pull_request }}
           STICKY: ${{ inputs.sticky }}
+          LABEL: ${{ inputs.label }}
         run: |
           set -euo pipefail
           # Sticky mode takes no --inline: it allows only none, which is the default. It finds the
           # review to edit by the source's name, which is why that name MUST NOT change between rounds.
+          # The note sits under the newest round only, so the hint does not repeat in every collapsed
+          # round. loupe refuses --note without --sticky.
           sticky=()
-          if [ "$STICKY" = "true" ]; then sticky=(--sticky); fi
+          if [ "$STICKY" = "true" ]; then
+            sticky=(--sticky --note "Add the \`$LABEL\` label to ask for another round.")
+          fi
           # --json puts a refusal on stdout, so a refused publish would otherwise reach the log as
           # a bare exit code. A replayed receipt has sent false, and is a success: the review was
           # already posted by an earlier attempt of this job.
