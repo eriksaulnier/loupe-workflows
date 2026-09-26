@@ -76,12 +76,12 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | `pull_request` | string | *required* | The pull request to review. A string rather than a number, because `workflow_dispatch` delivers its inputs as strings whatever type the caller declares. Passing a number works; it is coerced. |
 | `model` | string | *required* | The OpenRouter model id the agent runs on. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |
-| `source` | string | `loupe-ci` | The source name loupe records, which appears in the published review's footer. |
+| `source` | string | derived | The source name loupe records, which appears in the published review's footer. Empty, the default, derives `loupe-ci.<workflow file>.<job>` from the calling workflow's file name and the calling job's name, such as `loupe-ci.ai-review.review`. See [One source per pipeline](#one-source-per-pipeline). |
 | `debug` | boolean | `false` | Show the agent's full output in the job log. The log is as public as the calling repository, so leave it off unless you are diagnosing a run. |
 | `max_turns` | number | `40` | Turn limit for the agent. |
 | `instructions_path` | string | `.github/review-instructions.md` | Path, **in the default branch**, to this repository's own review instructions. |
 | `wait_for_checks` | number | `10` | Minutes to wait for the repository's other checks to settle before reviewing an automatic round. `0` disables the wait. |
-| `sticky` | boolean | `false` | Edit one review per pull request in place instead of posting a new one each round. The newest round sits on top and earlier rounds collapse below it. The review is found by the `source` name, so `source` MUST NOT change between rounds. Sticky reviews post no inline comments. |
+| `sticky` | boolean | `false` | Edit one review per pull request in place instead of posting a new one each round. The newest round sits on top and earlier rounds collapse below it. The review is found by the `source` name, so `source` MUST NOT change between rounds. Sticky reviews post no inline comments. The newest round ends with a note, "Add the `<label>` label to ask for another round.", with the `label` input filled in. It is dropped when the round collapses. |
 
 ### Secrets
 
@@ -103,6 +103,18 @@ An automatic round is also skipped for a draft, a `release-please--*` branch, an
 It overrides the fourth only when the request came first. A round answers a request, so a request that predates its answer is already answered: a round asked for by hand is skipped when a matching review for the same head SHA was published after that round was queued. That is what stops a pull request opened with the label already on from publishing twice on one commit — both events fire, the automatic round publishes, and the labelled round the concurrency group held behind it finds its request already answered. Labelling a commit that was reviewed earlier is asking again, and still runs. If prior reviews cannot be read, the round proceeds.
 
 An automatic round waits for the repository's other checks to settle first, up to `wait_for_checks` minutes, so the agent is told what the build and the linters already concluded rather than guessing. A round asked for by hand does not wait: whoever added the label or ran the dispatch decided the pull request was ready to read.
+
+## The previous round
+
+Every round starts from an empty loupe data root, so loupe reads the previous round back from GitHub. At capture it finds the newest loupe review on the pull request from `github-actions[bot]` with the same `source`, and reads the hidden findings record in it. When it finds one, the prompt tells the agent to run `loupe show --previous --json`. Its `earlier` list holds every finding still open before this round, each with a ref such as `e-1`. The agent MUST assess each entry with `loupe assess`: `open` when the new head still has the problem, `addressed` when it is fixed. It files with `loupe add` only problems that are not in `earlier`, and never files an earlier one again. The assessments go into the published review's hidden record, so a finding marked open reaches the next round's `earlier` list with the round that first filed it, until a round marks it addressed. An entry left unassessed is dropped, and `loupe publish` warns about it in the job log. The summary carries no status list. It MAY say in one line how many earlier findings are still open. When there is no such review, or its record cannot be read, the job log says why and the agent reviews without one.
+
+## One source per pipeline
+
+The `source` name is how a round finds its own earlier reviews: the sticky review it edits, the previous round it reads back, and the reviewed head that lets an automatic round skip. Each pipeline on a repository MUST use its own name. Two jobs that share one mix their rounds into one sticky review and read each other's findings as their own previous round.
+
+Left empty, `source` is derived from the calling workflow's file name and the calling job's name, which are unique on a repository and the same on every run of that job. A caller that sets `source` keeps its name. Renaming the calling workflow file or the calling job changes the derived name, and that starts a new series, as a new `source` would.
+
+A caller that relied on the old fixed default, `loupe-ci`, gets a new name on its first round after upgrading. That round posts a new sticky review and leaves the old one as it was. It also does not recognize a head that the old name reviewed, so it can review that head once more. To keep the old series, pass `source: loupe-ci`. That is safe only when a single pipeline on the repository uses it.
 
 ## Per-repository review instructions
 
