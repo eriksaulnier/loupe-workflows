@@ -247,7 +247,7 @@ jobs:
       # action's version default moves with each loupe release, so pinning its sha pins the binary.
       - name: Install loupe
         if: steps.pr.outputs.skip != 'true'
-        uses: eriksaulnier/loupe@a489c82deebefb26c42bc1b70a7d3ee73d7b769e # v0.12.0
+        uses: eriksaulnier/loupe@2770ea71d16074628745e7a1d934c633e596f74c # v0.14.0
 
       - name: Show loupe version
         if: steps.pr.outputs.skip != 'true'
@@ -711,7 +711,7 @@ jobs:
       REPOSITORY: ${{ github.repository }}
     steps:
       - name: Install loupe
-        uses: eriksaulnier/loupe@a489c82deebefb26c42bc1b70a7d3ee73d7b769e # v0.12.0
+        uses: eriksaulnier/loupe@2770ea71d16074628745e7a1d934c633e596f74c # v0.14.0
 
       - name: Set up loupe home
         run: |
