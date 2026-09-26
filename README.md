@@ -112,7 +112,7 @@ Every round starts from an empty loupe data root, so loupe reads the previous ro
 
 The `source` name is how a round finds its own earlier reviews: the sticky review it edits, the previous round it reads back, and the reviewed head that lets an automatic round skip. Each pipeline on a repository MUST use its own name. Two jobs that share one mix their rounds into one sticky review and read each other's findings as their own previous round.
 
-Left empty, `source` is derived from the calling workflow's file name and the calling job's name, which are unique on a repository and the same on every run of that job. A caller that sets `source` keeps its name. Renaming the calling workflow file or the calling job changes the derived name, and that starts a new series, as a new `source` would.
+Left empty, `source` is derived from the calling workflow's file name and the calling job's name, which are unique on a repository and the same on every run of that job. A caller that sets `source` keeps its name. Renaming the calling workflow file or the calling job changes the derived name, and that starts a new series, as a new `source` would. Caller jobs MUST have names that stay distinct after that slugging: `review-a` and `review_a` both become `review-a`, and a round refuses to run when another caller job on the same commit derives the same name.
 
 A caller that relied on the old fixed default, `loupe-ci`, gets a new name on its first round after upgrading. That round posts a new sticky review and leaves the old one as it was. It also does not recognize a head that the old name reviewed, so it can review that head once more. To keep the old series, pass `source: loupe-ci`. That is safe only when a single pipeline on the repository uses it.
 

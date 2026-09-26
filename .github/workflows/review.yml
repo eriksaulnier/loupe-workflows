@@ -147,20 +147,56 @@ jobs:
             REVIEW_SOURCE=$SOURCE_INPUT
             if [ -z "$REVIEW_SOURCE" ]; then
               if [ -z "$CHECK_RUN_ID" ] ||
-                ! job_name=$(gh api "repos/$REPOSITORY/check-runs/$CHECK_RUN_ID" --jq .name); then
+                ! check_run=$(gh api "repos/$REPOSITORY/check-runs/$CHECK_RUN_ID" --jq '[.name, .head_sha] | @tsv'); then
                 echo "::error::could not read this job's check run to derive a source name; set the source input"
                 exit 1
               fi
+              IFS=$'\t' read -r job_name check_head <<<"$check_run"
               workflow_file=${CALLER_WORKFLOW_REF%%@*}
               workflow_file=${workflow_file##*/}
               # Any run of characters loupe refuses, "-" and "_" included, becomes one "-", so the
               # result never holds the "--" loupe also refuses.
               slug() { tr '[:upper:]' '[:lower:]' <<<"$1" | sed -E 's/[^a-z0-9.]+/-/g'; }
               # This lands in the footer a co-worker reads, where "ci" says a pipeline wrote the review.
-              REVIEW_SOURCE="loupe-ci.$(slug "${workflow_file%.*}").$(slug "${job_name% / *}")"
-              if [ "${#REVIEW_SOURCE}" -gt 64 ]; then
-                REVIEW_SOURCE="${REVIEW_SOURCE:0:55}.$(sha256sum <<<"$REVIEW_SOURCE" | cut -c1-8)"
+              derive() {
+                local source
+                source="loupe-ci.$(slug "${1%.*}").$(slug "$2")"
+                if [ "${#source}" -gt 64 ]; then
+                  source="${source:0:55}.$(sha256sum <<<"$source" | cut -c1-8)"
+                fi
+                printf '%s' "$source"
+              }
+              REVIEW_SOURCE=$(derive "$workflow_file" "${job_name% / *}")
+              # Caller jobs whose names differ only in punctuation, such as review-a and review_a, derive one
+              # source and would read, assess and overwrite each other's sticky review.
+              if ! check_runs=$(gh api "repos/$REPOSITORY/commits/$check_head/check-runs?per_page=100" \
+                --paginate --slurp); then
+                echo "::error::could not list the check runs on $check_head to check that no other caller job derives source $REVIEW_SOURCE. Set the source input to skip this check."
+                exit 1
               fi
+              if ! others=$(jq -r --arg suffix " / ${job_name##* / }" '
+                [.[].check_runs[]
+                  | select((.name | endswith($suffix)) and ((.details_url // "") | test("/actions/runs/[0-9]+/")))
+                  | [.name, (.details_url | capture("/actions/runs/(?<id>[0-9]+)/").id)] | @tsv]
+                | unique | .[]' <<<"$check_runs"); then
+                echo "::error::could not parse the check runs on $check_head. Set the source input to skip this check."
+                exit 1
+              fi
+              while IFS=$'\t' read -r other_name other_run; do
+                [ -n "$other_name" ] || continue
+                if ! other_path=$(gh api "repos/$REPOSITORY/actions/runs/$other_run" --jq .path); then
+                  echo "::error::could not read run $other_run to check that its job '$other_name' does not derive source $REVIEW_SOURCE. Set the source input to skip this check."
+                  exit 1
+                fi
+                other_file=${other_path%%@*}
+                other_file=${other_file##*/}
+                # The same file and job is this job again: a re-run, or an earlier run on this commit.
+                [ "$other_file/${other_name% / *}" = "$workflow_file/${job_name% / *}" ] && continue
+                if [ "$(derive "$other_file" "${other_name% / *}")" = "$REVIEW_SOURCE" ]; then
+                  echo "::error::caller jobs '${job_name% / *}' in $workflow_file and '${other_name% / *}' in $other_file both derive source $REVIEW_SOURCE. Rename one so the names stay distinct after slugging, or set the source input."
+                  exit 1
+                fi
+              done <<<"$others"
             fi
             # loupe's own rule, checked here because the name goes into GITHUB_ENV, where a newline
             # would set another variable.
