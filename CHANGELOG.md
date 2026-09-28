@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/eriksaulnier/loupe-workflows/compare/v2.0.0...v2.1.0) (2026-09-28)
+
+
+### Features
+
+* **review:** use the previous round and derive a source per job ([#26](https://github.com/eriksaulnier/loupe-workflows/issues/26)) ([2b2978d](https://github.com/eriksaulnier/loupe-workflows/commit/2b2978d066165e5839343a2507f08d0885e4bc0a))
+
 ## [2.0.0](https://github.com/eriksaulnier/loupe-workflows/compare/v1.4.0...v2.0.0) (2026-09-25)
 
 
