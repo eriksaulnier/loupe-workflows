@@ -854,8 +854,8 @@ jobs:
   unlabel:
     needs: [review, publish]
     # Only the round's own label comes off, and only when a label is what asked for the round: an
-    # automatic round and a dispatch have no label to take off, and deleting a label that is not
-    # there is a 404 on somebody else's change. A request the caller's kill switch turned away keeps
+    # automatic round and a dispatch have no label to take off, and a label on somebody else's
+    # change is not this round's to take. A request the caller's kill switch turned away keeps
     # its label, so it is still there to answer when the switch goes back on.
     #
     # A pull request from a fork is left alone. GitHub hands a `pull_request` event from a fork a
@@ -877,4 +877,13 @@ jobs:
           LABEL: ${{ inputs.label }}
           PULL_REQUEST: ${{ inputs.pull_request }}
           REPOSITORY: ${{ github.repository }}
-        run: gh api -X DELETE "repos/$REPOSITORY/issues/$PULL_REQUEST/labels/$LABEL" --silent
+        # Another run answering the same request can take the label off first, such as one canceled
+        # for an older head, so a label already gone is the outcome this step wants, not a failure.
+        run: |
+          if ! out=$(gh api -X DELETE "repos/$REPOSITORY/issues/$PULL_REQUEST/labels/$LABEL" --silent 2>&1); then
+            if ! grep -q 'HTTP 404' <<<"$out"; then
+              echo "$out" >&2
+              exit 1
+            fi
+            echo "The $LABEL label was already off."
+          fi
