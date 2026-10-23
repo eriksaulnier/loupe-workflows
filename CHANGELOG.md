@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/eriksaulnier/loupe-workflows/compare/v2.1.0...v2.1.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **review:** treat an already-removed label as unlabeled ([#30](https://github.com/eriksaulnier/loupe-workflows/issues/30)) ([6738032](https://github.com/eriksaulnier/loupe-workflows/commit/67380324600ec74662445dd865c7c9ea6e1ade00))
+
 ## [2.1.0](https://github.com/eriksaulnier/loupe-workflows/compare/v2.0.0...v2.1.0) (2026-09-28)
 
 
