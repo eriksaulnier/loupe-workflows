@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/eriksaulnier/loupe-workflows/compare/v2.1.1...v2.2.0) (2026-11-03)
+
+
+### Features
+
+* **review:** bump loupe to 0.20.0 and anchor findings to headings ([#32](https://github.com/eriksaulnier/loupe-workflows/issues/32)) ([019c627](https://github.com/eriksaulnier/loupe-workflows/commit/019c6274c1006eac87e07f399a2ae9e39b7bc388))
+* **review:** run the reviewer on OpenRouter or Anthropic ([#33](https://github.com/eriksaulnier/loupe-workflows/issues/33)) ([6d20877](https://github.com/eriksaulnier/loupe-workflows/commit/6d20877995bcfa79c9b8ed55ac282fb44cf77458))
+
 ## [2.1.1](https://github.com/eriksaulnier/loupe-workflows/compare/v2.1.0...v2.1.1) (2026-10-23)
 
 
