@@ -295,7 +295,7 @@ jobs:
       # action's version default moves with each loupe release, so pinning its sha pins the binary.
       - name: Install loupe
         if: steps.pr.outputs.skip != 'true'
-        uses: eriksaulnier/loupe@cc78bd64ce9bc70e6e2f935025481c7f2b7dbe1f # v0.16.0
+        uses: eriksaulnier/loupe@905434ec1c48255cde2315fe1ee036329605538f # v0.20.0
 
       - name: Show loupe version
         if: steps.pr.outputs.skip != 'true'
@@ -600,9 +600,19 @@ jobs:
             `location` (`path`, `line`, and `startLine` for a range) or `"general": true`. Paths and
             lines are the diff's, as `review/pr.diff` gives them; a location that is not in the diff
             is refused with the nearest valid lines, so correct it or file that finding as
-            `general`. The whole array is stored or none of it is. A refusal names every bad entry
-            in `details.entries`, each with its first defect, so fix all of them and run it once
-            more rather than one at a time.
+            `general`. For a finding about a whole section of a changed Markdown file (`.md`,
+            `.markdown` or `.mdx`), you MAY give `location` as `path` and `heading` instead, with the
+            heading's text as the file writes it and no `#` marks, and no `line`, `startLine` or
+            `side`. loupe anchors it to the one hunk that changes that section. When it refuses the
+            heading, its fix lists the headings you can use or the line ranges to file instead.
+            The whole array is stored or none of it is. A refusal names every bad entry in
+            `details.entries`, each with its first defect, so fix all of them and run it once more
+            rather than one at a time.
+
+            A title, body, impact or summary MUST NOT cite a finding id such as `f-001`, or an
+            earlier round's ref such as `e-1`. Ids renumber every round and the published review
+            shows none of them, so name the finding by its subject instead. loupe refuses a
+            finding id outside a fence.
 
             You MUST confirm that `loupe add` returned `ok: true` and one finding per input entry.
             Finish with `loupe summary --expect-findings N --json --body`, or `--from` a JSON file
@@ -790,7 +800,7 @@ jobs:
       REPOSITORY: ${{ github.repository }}
     steps:
       - name: Install loupe
-        uses: eriksaulnier/loupe@cc78bd64ce9bc70e6e2f935025481c7f2b7dbe1f # v0.16.0
+        uses: eriksaulnier/loupe@905434ec1c48255cde2315fe1ee036329605538f # v0.20.0
 
       - name: Set up loupe home
         run: |
