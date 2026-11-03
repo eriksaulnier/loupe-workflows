@@ -505,6 +505,12 @@ jobs:
       # `--allowedTools` is the only way this step can run `loupe` at all: the action grants no Bash
       # access by default, and a command outside the list is refused rather than asked about. A
       # blanket `Bash(*)` denial would outrank those allow rules and take every one of them with it.
+      #
+      # `--disallowedTools` names the shell commands that print a file's contents or matching lines.
+      # Claude Code runs them without asking, whatever `--allowedTools` says, and a reviewer that
+      # reads through them leaves the coverage line below saying it read nothing. A deny rule
+      # outranks that auto-approval, and it applies to each part of a compound command such as
+      # `cd review; cat pr.diff`. It is not a security boundary, only a push toward Read and Grep.
       - name: Review the pull request
         id: review
         if: steps.pr.outputs.skip != 'true'
@@ -524,6 +530,7 @@ jobs:
             --add-dir review
             --max-turns ${{ inputs.max_turns }}
             --allowedTools "Write,Bash(loupe --help),Bash(loupe capture --help),Bash(loupe add --help),Bash(loupe add:*),Bash(loupe edit --help),Bash(loupe edit:*),Bash(loupe summary --help),Bash(loupe summary:*),Bash(loupe assess --help),Bash(loupe assess:*),Bash(loupe wait --help),Bash(loupe handoff --help),Bash(loupe reply --help),Bash(loupe feedback --help),Bash(loupe show --help),Bash(loupe show:*),Bash(loupe list --help),Bash(loupe review --help),Bash(loupe publish --help)"
+            --disallowedTools "Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(sed:*),Bash(awk:*),Bash(grep:*),Bash(egrep:*),Bash(rg:*),Bash(less:*),Bash(more:*),Bash(nl:*)"
           prompt: |
             You are reviewing one pull request for this repository. Read `loupe --help` first; every
             subcommand's `--help` shows its JSON input and its result.
@@ -536,6 +543,9 @@ jobs:
             You SHOULD look up a path there instead of guessing one. You MUST NOT read
             outside `$GITHUB_WORKSPACE`. Within it, you MUST restrict source reads to `review/`
             and project-context reads to the paths permitted below.
+            You MUST open files with the Read tool and search them with the Grep and Glob tools.
+            Shell commands that print a file, such as `cat`, `head`, `tail`, `sed`, `awk` and
+            `grep`, are refused, and each refusal costs you a turn.
 
             **What to review.** The diff, and the code it touches. Not the rest of the repository,
             beyond the bounded context lookup below, and not the pull request's description,
@@ -689,9 +699,9 @@ jobs:
                 | select(.tool_use_id | IN($probes[]) | not) ]
             | length' "$EXECUTION_FILE")
           context_read=$(grep -c -v '^review/' "$RUNNER_TEMP/read-files" || true)
-          # Read-only shell commands such as grep, sed -n and cat are auto-approved whatever
-          # --allowedTools says, and some models trace code with them instead of Read, so those reads
-          # never reach the counts above. A refused command never ran; one that ran and exited non-zero
+          # The review step refuses the shell commands that print a file, but other read-only commands
+          # such as ls and wc still run whatever --allowedTools says, and a read through any of them
+          # never reaches the counts above. A refused command never ran; one that ran and exited non-zero
           # is an error too, but its result starts with its exit code.
           shell_run=$(jq '
             def text: if type == "array" then map(.text? // "") | join("") elif type == "string" then . else "" end;
