@@ -42,6 +42,18 @@ jobs:
       openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
+That example runs on OpenRouter, the default provider. To run on Anthropic directly, set `provider` and pass one Anthropic credential instead, either an API key or a Claude subscription OAuth token from `claude setup-token`:
+
+```yaml
+    with:
+      pull_request: ${{ inputs.pull_request || github.event.pull_request.number }}
+      model: ${{ vars.REVIEW_MODEL }}
+      provider: anthropic
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # or: anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
 The example pins a tag, which is what to copy into a repository you are setting up. The repositories maintained alongside this one pin the release commit's SHA instead, with the tag beside it in a comment:
 
 ```yaml
@@ -74,7 +86,8 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | Input | Type | Default | What it does |
 | :--- | :--- | :--- | :--- |
 | `pull_request` | string | *required* | The pull request to review. A string rather than a number, because `workflow_dispatch` delivers its inputs as strings whatever type the caller declares. Passing a number works; it is coerced. |
-| `model` | string | *required* | The OpenRouter model id the agent runs on. |
+| `model` | string | *required* | The model id the agent runs on, in the provider's naming: `anthropic/claude-sonnet-...` on OpenRouter, `claude-sonnet-...` on Anthropic. |
+| `provider` | string | `openrouter` | Where the agent's model runs. `openrouter` sends Claude Code to OpenRouter's Anthropic-compatible endpoint. `anthropic` sends it to Anthropic directly. Any other value stops the round before the agent starts. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |
 | `source` | string | derived | The source name loupe records, which appears in the published review's footer. Empty, the default, derives `loupe-ci.<workflow file>.<job>` from the calling workflow's file name and the calling job's name, such as `loupe-ci.ai-review.review`. See [One source per pipeline](#one-source-per-pipeline). |
 | `debug` | boolean | `false` | Show the agent's full output in the job log. The log is as public as the calling repository, so leave it off unless you are diagnosing a run. |
@@ -87,7 +100,11 @@ Granting them on the calling job does not hand the agent a write token. The spli
 
 | Secret | Required | What it is |
 | :--- | :--- | :--- |
-| `openrouter_api_key` | yes | The OpenRouter key the agent authenticates with. The agent is Claude Code pointed at OpenRouter's Anthropic-compatible endpoint. |
+| `openrouter_api_key` | when `provider` is `openrouter` | The OpenRouter key the agent authenticates with. |
+| `anthropic_api_key` | when `provider` is `anthropic`, unless `claude_code_oauth_token` is set | An Anthropic API key, billed per token. |
+| `claude_code_oauth_token` | when `provider` is `anthropic`, unless `anthropic_api_key` is set | A Claude subscription OAuth token, from `claude setup-token` on a Pro or Max plan. |
+
+With `provider: anthropic`, pass exactly one of the two Anthropic secrets. The round stops before the agent starts when neither or both are set, because `claude-code-action` would otherwise prefer one without saying which. A secret the provider does not use is ignored.
 
 ## When a round runs
 
@@ -141,9 +158,9 @@ The trace itself is uploaded as the `review-trace-<pull request>` artifact: ever
 None of this is created for you:
 
 - **The `ai-review` label.** Create it (or whatever you set `label` to). A round asked for by hand needs it to exist before it can be added.
-- **The `OPENROUTER_API_KEY` secret.** Set it on the repository or the organization and pass it through as `openrouter_api_key`.
+- **The provider's secret.** For OpenRouter, set `OPENROUTER_API_KEY` and pass it through as `openrouter_api_key`. For Anthropic, set either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` and pass it through under the matching secret name. Set it on the repository or the organization.
 - **`REVIEW_ENABLED`.** A repository variable, `"true"` to let rounds run. The kill switch lives in the repository it guards, so it is a caller-side `if:` and not an input here. Nothing runs until you set it.
-- **`REVIEW_MODEL`.** A repository variable holding the OpenRouter model id, passed in as `model`. Keeping it a variable means changing models without touching the workflow.
+- **`REVIEW_MODEL`.** A repository variable holding the model id in the provider's naming, passed in as `model`. Keeping it a variable means changing models without touching the workflow.
 - **`REVIEW_DEBUG`.** A repository variable, `"true"` to pass `debug: true`. The agent's log is as public as the repository.
 
 ## License

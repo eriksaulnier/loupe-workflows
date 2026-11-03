@@ -13,9 +13,14 @@ on:
         # starts. Every use here interpolates it into a url, an api path or an artifact name.
         type: string
       model:
-        description: OpenRouter model id the reviewing agent runs on
+        description: Model id the reviewing agent runs on, in the provider's naming
         required: true
         type: string
+      provider:
+        description: "Where the reviewing agent's model runs: openrouter or anthropic"
+        required: false
+        type: string
+        default: openrouter
       label:
         description: Label that asks for a round, and that the unlabel job takes back off
         required: false
@@ -54,9 +59,16 @@ on:
         type: boolean
         default: false
     secrets:
+      # Each one is optional on its own; the capture step checks that the provider has what it needs.
       openrouter_api_key:
-        description: OpenRouter key the reviewing agent authenticates with
-        required: true
+        description: OpenRouter key the reviewing agent authenticates with when provider is openrouter
+        required: false
+      anthropic_api_key:
+        description: Anthropic API key for provider anthropic; set this or claude_code_oauth_token, not both
+        required: false
+      claude_code_oauth_token:
+        description: Claude subscription OAuth token, from claude setup-token, for provider anthropic; set this or anthropic_api_key, not both
+        required: false
 
 # The reviewing job and the publishing job are split so that the agent never holds a token that can
 # write to the pull request: the action embeds the token it is given into the workspace's .git/config
@@ -292,16 +304,41 @@ jobs:
       # The only step that needs the clone. Its `--json` result names the run; every later step
       # passes that reference on through LOUPE_RUN rather than resolving one of its own. The model is
       # recorded here rather than required by loupe: the caller always knows it, so an empty input is
-      # a configuration error and stops the job.
+      # a configuration error and stops the job. The provider's credentials are checked here too,
+      # before anything is spent. Only whether each secret is set reaches the shell, never its value.
       - name: Capture the pull request
         if: steps.pr.outputs.skip != 'true'
         env:
           REVIEW_MODEL: ${{ inputs.model }}
+          REVIEW_PROVIDER: ${{ inputs.provider }}
+          HAS_OPENROUTER_KEY: ${{ secrets.openrouter_api_key != '' }}
+          HAS_ANTHROPIC_KEY: ${{ secrets.anthropic_api_key != '' }}
+          HAS_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token != '' }}
         run: |
           if [ -z "$REVIEW_MODEL" ]; then
             echo "::error::the model input is empty; set it to the model id the review step uses"
             exit 1
           fi
+          case "$REVIEW_PROVIDER" in
+            openrouter)
+              if [ "$HAS_OPENROUTER_KEY" != true ]; then
+                echo "::error::provider is openrouter but the openrouter_api_key secret is not set"
+                exit 1
+              fi
+              ;;
+            anthropic)
+              # Not a precedence rule: the action quietly prefers one credential over the other, so
+              # passing both would hide which one the review ran on.
+              if [ "$HAS_ANTHROPIC_KEY" = "$HAS_OAUTH_TOKEN" ]; then
+                echo "::error::provider is anthropic; set exactly one of the anthropic_api_key and claude_code_oauth_token secrets"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::provider is '$REVIEW_PROVIDER'; set it to openrouter or anthropic"
+              exit 1
+              ;;
+          esac
           # --json puts a refusal on stdout, which the capture above swallows, so a refused capture
           # would otherwise reach the log as a bare exit code.
           if ! result=$(loupe capture "https://github.com/$REPOSITORY/pull/$PULL_REQUEST" \
@@ -461,10 +498,13 @@ jobs:
             echo "$delim"
           } >> "$GITHUB_ENV"
 
-      # Claude Code, routed through OpenRouter's Anthropic-compatible endpoint. `--allowedTools` is
-      # the only way this step can run `loupe` at all: the action grants no Bash access by default,
-      # and a command outside the list is refused rather than asked about. A blanket `Bash(*)` denial
-      # would outrank those allow rules and take every one of them with it.
+      # Claude Code, routed either through OpenRouter's Anthropic-compatible endpoint or to Anthropic
+      # directly, as the provider input says. On anthropic the base URL is Anthropic's own, set
+      # explicitly rather than left empty, so nothing turns on how an empty variable is read.
+      #
+      # `--allowedTools` is the only way this step can run `loupe` at all: the action grants no Bash
+      # access by default, and a command outside the list is refused rather than asked about. A
+      # blanket `Bash(*)` denial would outrank those allow rules and take every one of them with it.
       - name: Review the pull request
         id: review
         if: steps.pr.outputs.skip != 'true'
@@ -473,7 +513,8 @@ jobs:
           # Without this the action finds no token and asks for an OIDC one instead, which this job
           # has no id-token permission for, so it fails before the reviewer starts.
           github_token: ${{ github.token }}
-          anthropic_api_key: ${{ secrets.openrouter_api_key }}
+          anthropic_api_key: ${{ inputs.provider == 'openrouter' && secrets.openrouter_api_key || secrets.anthropic_api_key }}
+          claude_code_oauth_token: ${{ inputs.provider == 'anthropic' && secrets.claude_code_oauth_token || '' }}
           # The action hides the agent's output by default, which leaves a failed review with nothing
           # to read but a turn count. Set the debug input to see it; the log is as public as the
           # calling repository, so it stays off unless someone is diagnosing a run.
@@ -587,8 +628,8 @@ jobs:
 
             ${{ env.REVIEW_INSTRUCTIONS }}
         env:
-          ANTHROPIC_BASE_URL: https://openrouter.ai/api
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.openrouter_api_key }}
+          ANTHROPIC_BASE_URL: ${{ inputs.provider == 'openrouter' && 'https://openrouter.ai/api' || 'https://api.anthropic.com' }}
+          ANTHROPIC_AUTH_TOKEN: ${{ inputs.provider == 'openrouter' && secrets.openrouter_api_key || '' }}
 
       # The summary the agent writes says what it checked, and nothing checks that claim; the coverage
       # line is what the trace shows. It is an annotation on the review, not the review: a failure here
