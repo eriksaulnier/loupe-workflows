@@ -112,22 +112,13 @@ jobs:
     outputs:
       skip: ${{ steps.capture.outputs.skip }}
     steps:
-      - name: Capture the pull request
-        id: capture
-        uses: secondshift-labs/loupe/ci/capture@913540b0a4391ebad1d9a2e596bd312268d07982 # v0.25.0
-        with:
-          pull_request: ${{ inputs.pull_request }}
-          source: ${{ inputs.source }}
-          wait_for_checks: ${{ inputs.wait_for_checks }}
-          # MODEL-WIRE: ci/capture at this pin takes no model, so the published footer and loupe-meta
-          # record none. Pass `model: ${{ inputs.model }}` here once the pin reaches a loupe release
-          # whose ci/capture has that input.
-
-      # Checked after capture rather than before, so a fork's pull request, which gets no secrets,
-      # skips instead of failing here. Only whether each secret is set reaches the shell, never its
-      # value.
+      # Before capture, so a misconfigured caller fails before the wait for checks. A fork's
+      # pull_request event gets no secrets, so the check is left to capture's fork skip there instead of
+      # failing every fork's round. Only whether each secret is set reaches the shell, never its value.
       - name: Check the reviewer's configuration
-        if: steps.capture.outputs.skip != 'true'
+        if: >-
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
         env:
           REVIEW_MODEL: ${{ inputs.model }}
           REVIEW_PROVIDER: ${{ inputs.provider }}
@@ -159,6 +150,17 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Capture the pull request
+        id: capture
+        uses: secondshift-labs/loupe/ci/capture@913540b0a4391ebad1d9a2e596bd312268d07982 # v0.25.0
+        with:
+          pull_request: ${{ inputs.pull_request }}
+          source: ${{ inputs.source }}
+          wait_for_checks: ${{ inputs.wait_for_checks }}
+          # MODEL-WIRE: ci/capture at this pin takes no model, so the published footer and loupe-meta
+          # record none. Pass `model: ${{ inputs.model }}` here once the pin reaches a loupe release
+          # whose ci/capture has that input.
 
       # Whether there is an earlier round is decided here, not by the agent, which would otherwise
       # have to guess from a refusal.
