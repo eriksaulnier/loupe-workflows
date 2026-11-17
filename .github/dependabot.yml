@@ -8,3 +8,13 @@ updates:
       interval: weekly
     commit-message:
       prefix: build
+    # A week's wait before a new release is proposed, so one pulled soon after publishing never
+    # lands. Our own releases are exempt.
+    cooldown:
+      default-days: 7
+      exclude: ["secondshift-labs/*"]
+    # ci/capture, ci/save and publish.yml are pinned to one loupe release commit and MUST move
+    # together, so one loupe release arrives as one pull request.
+    groups:
+      loupe:
+        patterns: ["secondshift-labs/loupe*"]
