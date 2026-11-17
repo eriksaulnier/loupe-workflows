@@ -1,4 +1,4 @@
-# Contributing to loupe-workflows
+# Contributing to ai-review-workflows
 
 This repository is the reusable review workflow that `loupe` and its siblings call. It is workflow YAML and nothing else, which is what most of the rules below follow from.
 

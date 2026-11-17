@@ -1,8 +1,8 @@
-# loupe-workflows
+# ai-review-workflows
 
-[![ci](https://github.com/eriksaulnier/loupe-workflows/actions/workflows/ci.yml/badge.svg)](https://github.com/eriksaulnier/loupe-workflows/actions/workflows/ci.yml)
+[![ci](https://github.com/secondshift-labs/ai-review-workflows/actions/workflows/ci.yml/badge.svg)](https://github.com/secondshift-labs/ai-review-workflows/actions/workflows/ci.yml)
 
-A reusable GitHub Actions workflow that reviews a pull request with an agent and publishes the result as one GitHub review, using [loupe](https://github.com/eriksaulnier/loupe).
+A reusable GitHub Actions workflow that reviews a pull request with an agent and publishes the result as one GitHub review, using [loupe](https://github.com/secondshift-labs/loupe).
 
 A round captures the pull request, runs Claude Code over the captured head and diff, and publishes what the agent filed. Nothing is posted that loupe did not compose, and the published body passes loupe's Markdown allowlist before it is sent.
 
@@ -28,7 +28,7 @@ jobs:
     # The kill switch lives in the repository it guards. Flip REVIEW_ENABLED to "true" to let a
     # round run at all.
     if: vars.REVIEW_ENABLED == 'true'
-    uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@v3.0.0 # x-release-please-version
+    uses: secondshift-labs/ai-review-workflows/.github/workflows/review.yml@v3.0.0 # x-release-please-version
     # A called workflow's job permissions are capped by the calling job's. Read the gotcha below
     # before changing these.
     permissions:
@@ -62,7 +62,7 @@ That example runs on OpenRouter, the default provider. To run on Anthropic direc
 The example pins a tag, which is what to copy into a repository you are setting up. The repositories maintained alongside this one pin the release commit's SHA instead, with the tag beside it in a comment:
 
 ```yaml
-uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@<release-sha> # v1.1.0
+uses: secondshift-labs/ai-review-workflows/.github/workflows/review.yml@<release-sha> # v1.1.0
 ```
 
 This is the ref a caller hands `pull-requests: write`, and a tag can be moved after that caller has read it. A SHA cannot. It is also the only pin Dependabot acts on: a moving major tag reads to it as already satisfied, so a caller pinned to one is never told a release happened. Against a SHA, each release arrives as a pull request that bumps the SHA and the comment together — a review, rather than a tag moving overnight under a job that holds write access.
