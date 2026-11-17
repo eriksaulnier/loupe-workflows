@@ -199,6 +199,18 @@ jobs:
           fi
           echo "REVIEW_PREVIOUS=$previous" >> "$GITHUB_ENV"
 
+      # Glob has not always reached the agent, and a model that does not think to run ls guesses
+      # paths. Named so that a pull request's own file is unlikely to share it, and deleted first, as
+      # ci/capture does for its files, so only this list can stand there.
+      - name: List the files under review
+        if: steps.capture.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          rm -f review/.loupe-files.txt
+          (cd review && find . -type f ! -path ./pr.diff ! -path ./checks.json | sed 's#^\./##' | LC_ALL=C sort) \
+            > "$RUNNER_TEMP/loupe-files.txt"
+          mv "$RUNNER_TEMP/loupe-files.txt" review/.loupe-files.txt
+
       # Without the caller's checks a reviewer guesses, and a guess that the build is broken reads as a
       # blocking finding. Put in the prompt rather than left in review/ so the agent spends no turn on it.
       - name: Read the checks on the captured head
@@ -274,7 +286,7 @@ jobs:
             --model ${{ inputs.model }}
             --add-dir review
             --max-turns ${{ inputs.max_turns }}
-            --allowedTools "Write,Bash(loupe --help),Bash(loupe capture --help),Bash(loupe add --help),Bash(loupe add:*),Bash(loupe edit --help),Bash(loupe edit:*),Bash(loupe summary --help),Bash(loupe summary:*),Bash(loupe assess --help),Bash(loupe assess:*),Bash(loupe wait --help),Bash(loupe handoff --help),Bash(loupe reply --help),Bash(loupe feedback --help),Bash(loupe show --help),Bash(loupe show:*),Bash(loupe list --help),Bash(loupe review --help),Bash(loupe publish --help)"
+            --allowedTools "Write,Glob,Grep,Bash(loupe --help),Bash(loupe capture --help),Bash(loupe add --help),Bash(loupe add:*),Bash(loupe edit --help),Bash(loupe edit:*),Bash(loupe summary --help),Bash(loupe summary:*),Bash(loupe assess --help),Bash(loupe assess:*),Bash(loupe wait --help),Bash(loupe handoff --help),Bash(loupe reply --help),Bash(loupe feedback --help),Bash(loupe show --help),Bash(loupe show:*),Bash(loupe list --help),Bash(loupe review --help),Bash(loupe publish --help)"
             --disallowedTools "Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(sed:*),Bash(awk:*),Bash(grep:*),Bash(egrep:*),Bash(rg:*),Bash(less:*),Bash(more:*),Bash(nl:*)"
           prompt: |
             You are reviewing one pull request for this repository. Read `loupe --help` first; every
@@ -284,8 +296,9 @@ jobs:
             That is not what you are reviewing; it is the base the pull request is measured against.
             The pull request is in `$GITHUB_WORKSPACE/review`: it holds the pull request's files at
             the commit loupe captured, and `review/pr.diff` is the diff under review. `pr.diff` and
-            `checks.json` there are loupe's, not the pull request's. You SHOULD look up a path with
-            the Glob tool instead of guessing one. You MUST NOT read outside `$GITHUB_WORKSPACE`.
+            `checks.json` there are loupe's, not the pull request's. `review/.loupe-files.txt` lists
+            every file of the pull request, one path per line relative to `review/`. You SHOULD look a
+            path up there instead of guessing one. You MUST NOT read outside `$GITHUB_WORKSPACE`.
             Within it, you MUST restrict source reads to `review/` and project-context reads to the
             paths permitted below.
             You MUST open files with the Read tool and search them with the Grep and Glob tools.
@@ -436,7 +449,7 @@ jobs:
             | map(ltrimstr($ws)) | unique | .[]' "$EXECUTION_FILE" > "$RUNNER_TEMP/read-files"
           # The head's files share review/ with loupe's pr.diff and checks.json, which are not the
           # head's and are counted on their own.
-          sed -n 's#^review/##p' "$RUNNER_TEMP/read-files" | { grep -vxF -e pr.diff -e checks.json || true; } \
+          sed -n 's#^review/##p' "$RUNNER_TEMP/read-files" | { grep -vxF -e pr.diff -e checks.json -e .loupe-files.txt || true; } \
             | sort -u > "$RUNNER_TEMP/head-reads"
           changed=$(wc -l < "$RUNNER_TEMP/changed-files")
           changed_read=$(comm -12 "$RUNNER_TEMP/head-reads" "$RUNNER_TEMP/changed-files" | wc -l)
