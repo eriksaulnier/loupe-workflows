@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/eriksaulnier/loupe-workflows/compare/v2.2.0...v3.0.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **review:** source is now required, and nothing derives it. Set it to the src= name your existing reviews carry before upgrading.
+
+### Features
+
+* **review:** build rounds on loupe's ci/capture, ci/save and publish ([#37](https://github.com/eriksaulnier/loupe-workflows/issues/37)) ([4d0f7f4](https://github.com/eriksaulnier/loupe-workflows/commit/4d0f7f49754173db7035fe33590f02d55af56283))
+
 ## [2.2.0](https://github.com/eriksaulnier/loupe-workflows/compare/v2.1.1...v2.2.0) (2026-11-03)
 
 
