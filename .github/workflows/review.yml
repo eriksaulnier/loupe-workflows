@@ -205,6 +205,8 @@ jobs:
         if: steps.capture.outputs.skip != 'true'
         run: |
           set -euo pipefail
+          # Only loupe writes this file: ci/capture deletes any checks.json the pull request brings
+          # before writing its own, and leaves it absent when it cannot read the check runs.
           if [ -f review/checks.json ]; then
             # Check run names are any workflow's to choose, and a newline here would set another
             # environment variable.
