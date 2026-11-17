@@ -80,6 +80,24 @@ on:
 # so the caller MUST grant the union of the three jobs' or the publishing job gets a read-only token.
 permissions: {}
 
+# One round at a time per pull request and source, from capture through publish: a round that
+# captured while the one before it was still publishing would assess a stale previous round, and its
+# own publish would refuse with previous-moved. GitHub keeps one waiting run per group, so a run the
+# review job's if turns away gets a group of its own instead, and cannot cancel a round waiting its
+# turn. The condition here MUST match that if.
+concurrency:
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' ||
+    (github.event.action == 'labeled' && github.event.label.name == inputs.label) ||
+    ((github.event.action == 'opened' || github.event.action == 'ready_for_review' ||
+    github.event.action == 'synchronize') &&
+    !github.event.pull_request.draft &&
+    !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
+    !endsWith(github.event.pull_request.user.login, '[bot]')))
+    && format('loupe-review-{0}-{1}', inputs.pull_request, inputs.source)
+    || format('loupe-review-turned-away-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 jobs:
   review:
     runs-on: ubuntu-latest
@@ -96,12 +114,6 @@ jobs:
        !endsWith(github.event.pull_request.user.login, '[bot]'))
     # The default ten minutes of waiting for checks, plus the agent's own run with room to spare.
     timeout-minutes: 60
-    # On the job, not the workflow: GitHub keeps one waiting run per group, and a run whose review
-    # job the if above turned away would otherwise cancel a round that is waiting its turn. A label
-    # added again or a push while a round runs queues behind it rather than racing it.
-    concurrency:
-      group: loupe-review-${{ inputs.pull_request }}-${{ inputs.source }}
-      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: read
