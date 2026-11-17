@@ -209,11 +209,12 @@ jobs:
         if: steps.capture.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          # Claude Code loads skills from .claude/ at the root of an added directory and CLAUDE.md from
-          # under its working directory, so a pull request's own copies would instruct its reviewer. The
-          # reviewer still sees their changes in pr.diff. Only the default branch may say how to review.
+          # Claude Code loads skills from .claude/ at the root of an added directory, and CLAUDE.md and,
+          # since 2.1.277, AGENTS.md from under its working directory, so a pull request's own copies would
+          # instruct its reviewer. The reviewer still sees their changes in pr.diff. Only the default
+          # branch may say how to review.
           find review \( -type d -name .claude -prune -exec rm -rf {} + \) \
-            -o \( -type f \( -name CLAUDE.md -o -name CLAUDE.local.md \) -exec rm -f {} + \)
+            -o \( -type f \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md \) -exec rm -f {} + \)
           # -r too: a pull request can put a directory at this path.
           rm -rf review/.loupe-files.txt
           # A name with a newline in it would read as two paths, so such names are left out.
@@ -308,8 +309,9 @@ jobs:
             The pull request is in `$GITHUB_WORKSPACE/review`: it holds the pull request's files at
             the commit loupe captured, and `review/pr.diff` is the diff under review. `pr.diff` and
             `checks.json` there are loupe's, not the pull request's. The pull request's `.claude/` directories
-            and `CLAUDE.md` files are removed from `review/`, so read their changes in `review/pr.diff`. `review/.loupe-files.txt` lists
-            every file of the pull request, one path per line relative to `review/`. You SHOULD look a
+            and its `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` files are removed from `review/`, so
+            read their changes in `review/pr.diff`. `review/.loupe-files.txt` lists
+            every file left in `review/`, one path per line relative to `review/`. You SHOULD look a
             path up there instead of guessing one. You MUST NOT read outside `$GITHUB_WORKSPACE`.
             Within it, you MUST restrict source reads to `review/` and project-context reads to the
             paths permitted below.
