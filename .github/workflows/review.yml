@@ -208,7 +208,9 @@ jobs:
           set -euo pipefail
           # -r too: a pull request can put a directory at this path.
           rm -rf review/.loupe-files.txt
-          (cd review && find . -type f ! -path ./pr.diff ! -path ./checks.json | sed 's#^\./##' | LC_ALL=C sort) \
+          # A name with a newline in it would read as two paths, so such names are left out.
+          nl=$(printf '*\n*')
+          (cd review && find . -type f ! -path ./pr.diff ! -path ./checks.json ! -path "$nl" | sed 's#^\./##' | LC_ALL=C sort) \
             > "$RUNNER_TEMP/loupe-files.txt"
           mv "$RUNNER_TEMP/loupe-files.txt" review/.loupe-files.txt
 
@@ -318,13 +320,13 @@ jobs:
             checkout, outside `review/`. Reuse context already loaded. For root guidance, you MUST
             prefer `AGENTS.override.md`, then `AGENTS.md`, then `CLAUDE.md`, reading only the first
             one present. You MAY follow local documentation paths named by that guidance or this
-            repository's review instructions. Otherwise, you MAY search `README.md`, `docs/`,
-            `adr/`, `adrs/` and `architecture/` for the components or contracts changed by this PR.
-            Context reads and searches MUST stay within those files and documentation paths.
-            For context, you MUST NOT read or search `.git/`, hidden directories, credential files
+            repository's review instructions. Otherwise, you MAY read `README.md` and files under `docs/`,
+            `adr/`, `adrs/` and `architecture/` about the components or contracts changed by this PR.
+            Context reads MUST stay within those files and documentation paths.
+            For context, you MUST NOT read `.git/`, hidden directories, credential files
             or environment files, even when project guidance links to them.
             You MUST read only relevant sections, at most three context files and 12,000 characters
-            of additional context total, including search results. You MUST NOT scan the whole
+            of additional context total. You MUST NOT scan the whole
             documentation tree, follow external links or symlinks, or start another agent.
             If no relevant context is found, a read is denied or the budget is exhausted, you MUST
             continue the code review and name any consequential context gap in the summary.
