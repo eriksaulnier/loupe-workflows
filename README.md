@@ -6,6 +6,8 @@ A reusable GitHub Actions workflow that reviews a pull request with an agent and
 
 A round captures the pull request, runs Claude Code over the captured head and diff, and publishes what the agent filed. Nothing is posted that loupe did not compose, and the published body passes loupe's Markdown allowlist before it is sent.
 
+Since v3 this repository holds only the reviewer: the prompt, the model and provider, the instructions file and the coverage line. Everything around it is loupe's own reusable CI pieces, `ci/capture`, `ci/save` and `publish.yml`, described in loupe's [`docs/ci-action.md`](https://github.com/secondshift-labs/loupe/blob/main/docs/ci-action.md#reusable-pieces). Upgrading from v2? Read [Upgrading to v3](#upgrading-to-v3) first.
+
 ## Using it
 
 ```yaml
@@ -37,6 +39,8 @@ jobs:
     with:
       pull_request: ${{ inputs.pull_request || github.event.pull_request.number }}
       model: ${{ vars.REVIEW_MODEL }}
+      # Fixed for good: a sticky round finds its review by this name.
+      source: my-reviewer
       debug: ${{ vars.REVIEW_DEBUG == 'true' }}
     secrets:
       openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
@@ -48,6 +52,7 @@ That example runs on OpenRouter, the default provider. To run on Anthropic direc
     with:
       pull_request: ${{ inputs.pull_request || github.event.pull_request.number }}
       model: ${{ vars.REVIEW_MODEL }}
+      source: my-reviewer
       provider: anthropic
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -62,22 +67,24 @@ uses: eriksaulnier/loupe-workflows/.github/workflows/review.yml@<release-sha> # 
 
 This is the ref a caller hands `pull-requests: write`, and a tag can be moved after that caller has read it. A SHA cannot. It is also the only pin Dependabot acts on: a moving major tag reads to it as already satisfied, so a caller pinned to one is never told a release happened. Against a SHA, each release arrives as a pull request that bumps the SHA and the comment together — a review, rather than a tag moving overnight under a job that holds write access.
 
-The loupe binary is pinned the same way. Both jobs install it with loupe's own action at a pinned SHA, and that SHA decides which release runs. The action checks the archive's sha256 against the release's `checksums.txt`. There is no input to choose another version. Moving to a new loupe release is a change to that pin.
+The loupe binary is pinned the same way. This workflow pins `ci/capture`, `ci/save` and `publish.yml` to one loupe release commit's SHA, and `ci/capture` and `publish.yml` each install the release their own commit shipped. The install checks the archive's sha256 against the release's `checksums.txt`. There is no input to choose another version. Moving to a new loupe release is a change to those three pins, together.
 
 ## Why a reusable workflow and not an action
 
 The agent never holds a token that can write to the pull request.
 
-`claude-code-action` embeds the token it is given into the workspace's `.git/config` before it starts the agent, and a review is exactly the place untrusted text gets read. So the round is split across two jobs: `review` runs the agent with a read-only token, hands its data root on as an artifact, and `publish` posts from that artifact with a write token and no agent, no checkout and no pull request content in its workspace.
+`claude-code-action` embeds the token it is given into the workspace's `.git/config` before it starts the agent, and a review is exactly the place untrusted text gets read. So the round is split across jobs. `review` runs `ci/capture`, the agent and `ci/save` with a read-only token, and hands its data root on as an artifact. `publish` is loupe's `publish.yml`: it checks that the artifact names this pull request and `source`, then posts from it with a write token and no agent, no checkout and no pull request content in its workspace. `unlabel` takes the label back off.
 
 A composite action cannot do this. A composite action runs inside the job that calls it — one job, one token, the agent holding it. That is why this ships as `workflow_call`.
 
-## The caller permissions gotcha
+## Permissions are per job
 
 > [!IMPORTANT]
 > The caller MUST grant `contents: read`, `pull-requests: write`, `checks: read` and `actions: read` on the calling job.
 
-A called workflow's per-job `permissions:` are a ceiling, not a grant: the token each of its jobs gets is the intersection of what the job asks for and what the *calling* job was given. Leave them off and the calling job falls back to the repository's default — which, in most repositories, is read-only. The `review` job still runs, the agent still files findings, and then `publish` gets a read-only token and fails at the last step with a permissions error that names loupe rather than your workflow.
+This workflow sets `permissions: {}` and each of its jobs asks for its own. `review` runs an agent on untrusted pull request text, so it asks for read scopes only: `contents` and `pull-requests` for the capture, `checks` for the check runs the agent is told about, and `actions` to tell this workflow's own check runs apart from the rest. `publish` asks for `contents: read` and `pull-requests: write`, and no agent runs in it. `unlabel` asks for `pull-requests: write` alone. A workflow-level grant would hand every job the union, the agent's job included.
+
+A called workflow's per-job `permissions:` are a ceiling, not a grant: the token each of its jobs gets is the intersection of what the job asks for and what the *calling* job was given. That holds one level further down too, where `publish` calls loupe's `publish.yml`. So the calling job MUST grant the union of the three. Leave them off and the calling job falls back to the repository's default — which, in most repositories, is read-only. The `review` job still runs, the agent still files findings, and then `publish` gets a read-only token and fails at the last step with a permissions error that names loupe rather than your workflow.
 
 Granting them on the calling job does not hand the agent a write token. The split is inside this workflow: `review` asks for `pull-requests: read` and gets no more, whatever the caller allows.
 
@@ -86,14 +93,14 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | Input | Type | Default | What it does |
 | :--- | :--- | :--- | :--- |
 | `pull_request` | string | *required* | The pull request to review. A string rather than a number, because `workflow_dispatch` delivers its inputs as strings whatever type the caller declares. Passing a number works; it is coerced. |
-| `model` | string | *required* | The model id the agent runs on, in the provider's naming: `anthropic/claude-sonnet-...` on OpenRouter, `claude-sonnet-...` on Anthropic. |
+| `model` | string | *required* | The model id the agent runs on, in the provider's naming: `anthropic/claude-sonnet-...` on OpenRouter, `claude-sonnet-...` on Anthropic. The review's footer records it through `loupe capture --model`, which refuses anything outside lowercase letters, digits and `._/:-`, up to 64 characters, so a provider id with capitals fails the round. |
 | `provider` | string | `openrouter` | Where the agent's model runs. `openrouter` sends Claude Code to OpenRouter's Anthropic-compatible endpoint. `anthropic` sends it to Anthropic directly. Any other value stops the round before the agent starts. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |
-| `source` | string | derived | The source name loupe records, which appears in the published review's footer. Empty, the default, derives `loupe-ci.<workflow file>.<job>` from the calling workflow's file name and the calling job's name, such as `loupe-ci.ai-review.review`. See [One source per pipeline](#one-source-per-pipeline). |
+| `source` | string | *required* | The source name loupe records, which appears in the published review's footer and in its hidden `loupe-meta` line as `src=`. It MUST NOT change between rounds. See [One source per pipeline](#one-source-per-pipeline). |
 | `debug` | boolean | `false` | Show the agent's full output in the job log. The log is as public as the calling repository, so leave it off unless you are diagnosing a run. |
 | `max_turns` | number | `40` | Turn limit for the agent. |
 | `instructions_path` | string | `.github/review-instructions.md` | Path, **in the default branch**, to this repository's own review instructions. |
-| `wait_for_checks` | number | `10` | Minutes to wait for the repository's other checks to settle before reviewing an automatic round. `0` disables the wait. |
+| `wait_for_checks` | number | `10` | Minutes to wait for the repository's other checks to settle before reviewing an automatic round. `0` disables the wait. The `review` job times out after 60 minutes, wait included. |
 | `sticky` | boolean | `false` | Edit one review per pull request in place instead of posting a new one each round. The newest round sits on top and earlier rounds collapse below it. The review is found by the `source` name, so `source` MUST NOT change between rounds. Sticky reviews post no inline comments. The newest round ends with a note, "Add the `<label>` label to ask for another round.", with the `label` input filled in. It is dropped when the round collapses. |
 
 ### Secrets
@@ -110,28 +117,26 @@ With `provider: anthropic`, pass exactly one of the two Anthropic secrets. The r
 
 - `workflow_dispatch` naming a pull request.
 - `opened` and `ready_for_review` — the moments a pull request first asks to be read.
-- `synchronize`, when the caller lists it — each push to an open pull request. One round runs at a time per pull request, and GitHub keeps only the newest pending run, so a burst of pushes costs the round in flight plus one round for the latest head. Leave it out of the caller's `types` to review only on open and on request.
+- `synchronize`, when the caller lists it — each push to an open pull request. One round runs at a time per pull request and `source`, and GitHub keeps only the newest pending run, so a burst of pushes costs the round in flight plus one round for the latest head. Leave it out of the caller's `types` to review only on open and on request.
 - `labeled` with `inputs.label`. This is how a round is asked for *again*, for a head that was already reviewed: take the label off and put it back. The `unlabel` job removes it once the round has answered, including when the answer was a failure.
 
 A round is skipped, without failing, when the pull request comes from a fork. GitHub hands a fork's `pull_request` event a read-only token whatever the job asks for, so publishing is impossible whoever asked.
 
-An automatic round is also skipped for a draft, a `release-please--*` branch, an author ending in `[bot]`, or a head SHA already reviewed by `github-actions[bot]` through loupe with the same `source`. A label or a dispatch overrides the first three: asking by hand means you want it reviewed anyway.
+An automatic round is also skipped for a draft, a `release-please--*` branch, an author ending in `[bot]`, or a head SHA that the same `source` already reviewed. A label or a dispatch overrides all four: asking by hand means you want it reviewed anyway. The first three skip the `review` job outright. The fourth is `ci/capture`'s: it reads the previous round back at capture, and when that round reviewed the same head, it skips the rest of the round and says why in the job summary. When the previous round's head cannot be read back, the round runs.
 
-It overrides the fourth only when the request came first. A round answers a request, so a request that predates its answer is already answered: a round asked for by hand is skipped when a matching review for the same head SHA was published after that round was queued. That is what stops a pull request opened with the label already on from publishing twice on one commit — both events fire, the automatic round publishes, and the labelled round the concurrency group held behind it finds its request already answered. Labelling a commit that was reviewed earlier is asking again, and still runs. If prior reviews cannot be read, the round proceeds.
+A pull request opened with the label already on fires two events, `opened` and `labeled`, and the second queues behind the first. If the `opened` round runs first, the labelled round runs after it at the same head, since a request always runs, and with `sticky` it edits the first round's review in place. If the labelled round runs first, the `opened` round is an automatic one at a head that `source` already reviewed, so it skips. Either way the pull request gets at least one review.
 
 An automatic round waits for the repository's other checks to settle first, up to `wait_for_checks` minutes, so the agent is told what the build and the linters already concluded rather than guessing. A round asked for by hand does not wait: whoever added the label or ran the dispatch decided the pull request was ready to read.
 
 ## The previous round
 
-Every round starts from an empty loupe data root, so loupe reads the previous round back from GitHub. At capture it finds the newest loupe review on the pull request from `github-actions[bot]` with the same `source`, and reads the hidden findings record in it. When it finds one, the prompt tells the agent to run `loupe show --previous --json`. Its `earlier` list holds every finding still open before this round, each with a ref such as `e-1`. The agent MUST assess each entry with `loupe assess`: `open` when the new head still has the problem, `addressed` when it is fixed. It files with `loupe add` only problems that are not in `earlier`, and never files an earlier one again. The assessments go into the published review's hidden record, so a finding marked open reaches the next round's `earlier` list with the round that first filed it, until a round marks it addressed. An entry left unassessed is dropped, and `loupe publish` warns about it in the job log. The summary carries no status list. It MAY say in one line how many earlier findings are still open. When there is no such review, or its record cannot be read, the job log says why and the agent reviews without one.
+Every round starts from an empty loupe data root, so loupe reads the previous round back from GitHub. At capture it finds the newest loupe review on the pull request with the same `source`, and reads the hidden findings record in it. When it finds one, the prompt tells the agent to run `loupe show --previous --json`. Its `earlier` list holds every finding still open before this round, each with a ref such as `e-1`. The agent MUST assess each entry with `loupe assess`: `open` when the new head still has the problem, `addressed` when it is fixed. It files with `loupe add` only problems that are not in `earlier`, and never files an earlier one again. The assessments go into the published review's hidden record, so a finding marked open reaches the next round's `earlier` list with the round that first filed it, until a round marks it addressed. An entry left unassessed is dropped, and `loupe publish` warns about it in the job log. The summary carries no status list. It MAY say in one line how many earlier findings are still open. When there is no such review, or its record cannot be read, the job log says why and the agent reviews without one.
 
 ## One source per pipeline
 
 The `source` name is how a round finds its own earlier reviews: the sticky review it edits, the previous round it reads back, and the reviewed head that lets an automatic round skip. Each pipeline on a repository MUST use its own name. Two jobs that share one mix their rounds into one sticky review and read each other's findings as their own previous round.
 
-Left empty, `source` is derived from the calling workflow's file name and the calling job's name, which are unique on a repository and the same on every run of that job. A caller that sets `source` keeps its name. Renaming the calling workflow file or the calling job changes the derived name, and that starts a new series, as a new `source` would. Caller jobs MUST have names that stay distinct after that slugging: `review-a` and `review_a` both become `review-a`, and a round refuses to run when another caller job on the same commit derives the same name.
-
-A caller that relied on the old fixed default, `loupe-ci`, gets a new name on its first round after upgrading. That round posts a new sticky review and leaves the old one as it was. It also does not recognize a head that the old name reviewed, so it can review that head once more. To keep the old series, pass `source: loupe-ci`. That is safe only when a single pipeline on the repository uses it.
+`source` MUST be a fixed name of your choice. `loupe capture --help` gives the pattern it MUST match. Nothing derives it, because a renamed `source` leaves the old review behind and posts a new one, and only the caller can promise the name stays.
 
 ## Per-repository review instructions
 
@@ -149,9 +154,9 @@ The agent's summary says what it checked closely and what it could not check. Th
 Coverage: 1 of 23 changed files read, 2 other head files read, 12 other shell commands, diff read, 0 context files read, 1 failed tool call, 26 turns, 167 s.
 ```
 
-Changed files are those the diff adds or modifies. A file counts as read when the agent opened it with its Read tool and got its contents back; a Read that failed, such as a lookup of a root guidance file that does not exist, does not count, and neither does a Grep or Glob over the pull request, which shows the agent matching lines, not reading them. Other head files are files at the pull request's head that the diff does not change, such as the code a changed function calls. Other shell commands are Bash calls that ran and were not a `loupe` command. Claude Code runs read-only commands without asking, whatever `--allowedTools` says, so the review step denies the ones that print a file (`cat`, `head`, `tail`, `sed`, `awk`, `grep`, `rg` and similar) and tells the agent to use Read, Grep and Glob instead. Other read-only commands such as `ls` and `wc` still run, and a read through any shell command never reaches the file counts. The segment appears only when it is non-zero. Context files are reads outside the pull request, such as `AGENTS.md` or a document under `docs/`. Failed tool calls are the calls whose result was an error, such as a path that does not exist, and they appear only when there is at least one. A miss in the root-guidance lookup is not counted, because the prompt asks for that probe. The line is added only under a summary the agent wrote, so it never makes a round publishable that would otherwise have been refused as empty. A failure in this step is reported and does not stop the draft from publishing.
+Changed files are those the diff adds or modifies. A file counts as read when the agent opened it with its Read tool and got its contents back; a Read that failed, such as a lookup of a root guidance file that does not exist, does not count. Other head files are files at the pull request's head that the diff does not change, such as the code a changed function calls. Other shell commands are Bash calls that ran and were not a `loupe` command. Claude Code runs read-only commands without asking, whatever `--allowedTools` says, so the review step denies the ones that print a file (`cat`, `head`, `tail`, `sed`, `awk`, `grep`, `rg` and similar) and tells the agent to use Read instead, with `review/.loupe-files.txt` to find paths. Other read-only commands such as `ls` and `wc` still run, and a read through any shell command never reaches the file counts. The segment appears only when it is non-zero. Context files are reads outside the pull request, such as `AGENTS.md` or a document under `docs/`. Failed tool calls are the calls whose result was an error, such as a path that does not exist, and they appear only when there is at least one. A miss in the root-guidance lookup is not counted, because the prompt asks for that probe. The line is added only under a summary the agent wrote, so it never makes a round publishable that would otherwise have been refused as empty. A failure in this step is reported and does not stop the draft from publishing.
 
-The trace itself is uploaded as the `review-trace-<pull request>` artifact: every tool call and result, and the SDK's closing entry with turns, duration and cost. It holds whatever the agent read, so it is as public as the calling repository.
+The trace itself is uploaded as the `review-trace-<pull request>-<source>` artifact: every tool call and result, and the SDK's closing entry with turns, duration and cost. It holds whatever the agent read, so it is as public as the calling repository.
 
 ## Manual setup, per repository
 
@@ -162,6 +167,22 @@ None of this is created for you:
 - **`REVIEW_ENABLED`.** A repository variable, `"true"` to let rounds run. The kill switch lives in the repository it guards, so it is a caller-side `if:` and not an input here. Nothing runs until you set it.
 - **`REVIEW_MODEL`.** A repository variable holding the model id in the provider's naming, passed in as `model`. Keeping it a variable means changing models without touching the workflow.
 - **`REVIEW_DEBUG`.** A repository variable, `"true"` to pass `debug: true`. The agent's log is as public as the repository.
+
+## Upgrading to v3
+
+v3 is a breaking release. Before you move the pin:
+
+1. Find the `source` your reviews already carry. It is the `src=` value in the hidden `<!-- loupe-meta ... -->` line of a review this workflow posted, which `gh api repos/<owner>/<repo>/pulls/<number>/reviews --jq '.[].body' | grep loupe-meta` prints. A v2 caller that set no `source` carries a derived name such as `loupe-ci.ai-review.review`.
+2. Pass that name as `source`. A sticky round finds its review by it, so a different name posts a second review and forgets the first round's findings.
+3. Keep granting the four permissions on the calling job. They are unchanged.
+
+What else changes:
+
+- Each job sets its own permissions, and the workflow sets none.
+- The draft, release-branch and bot skips moved into the `review` job's `if:`, so such a round now shows as a skipped job, not a job that skipped its steps.
+- A head the same `source` already reviewed is skipped only on an automatic round. A label or a dispatch always runs.
+- "Re-run failed jobs" on `publish` now refuses, because an attempt after the first cannot see whether an earlier one posted. Ask for a fresh round with the label instead.
+- The artifacts are now `loupe-<pull request>-<source>-reviewed`, `loupe-<pull request>-<source>-published` and `review-trace-<pull request>-<source>`.
 
 ## License
 
