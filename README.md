@@ -124,7 +124,7 @@ A round is skipped, without failing, when the pull request comes from a fork. Gi
 
 An automatic round is also skipped for a draft, a `release-please--*` branch, an author ending in `[bot]`, or a head SHA that the same `source` already reviewed. A label or a dispatch overrides all four: asking by hand means you want it reviewed anyway. The first three skip the `review` job outright. The fourth is `ci/capture`'s: it reads the previous round back at capture, and when that round reviewed the same head, it skips the rest of the round and says why in the job summary. When the previous round's head cannot be read back, the round runs.
 
-A pull request opened with the label already on fires two events, and both rounds run, one queued behind the other. With `sticky`, the second edits the first's review in place.
+A pull request opened with the label already on fires two events, `opened` and `labeled`, and the second queues behind the first. If the `opened` round runs first, the labelled round runs after it at the same head, since a request always runs, and with `sticky` it edits the first round's review in place. If the labelled round runs first, the `opened` round is an automatic one at a head that `source` already reviewed, so it skips. Either way the pull request gets at least one review.
 
 An automatic round waits for the repository's other checks to settle first, up to `wait_for_checks` minutes, so the agent is told what the build and the linters already concluded rather than guessing. A round asked for by hand does not wait: whoever added the label or ran the dispatch decided the pull request was ready to read.
 
