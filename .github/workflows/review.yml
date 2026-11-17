@@ -199,14 +199,15 @@ jobs:
           fi
           echo "REVIEW_PREVIOUS=$previous" >> "$GITHUB_ENV"
 
-      # Glob has not always reached the agent, and a model that does not think to run ls guesses
-      # paths. Named so that a pull request's own file is unlikely to share it, and deleted first, as
-      # ci/capture does for its files, so only this list can stand there.
+      # Glob and Grep are not granted, since unscoped they would reach past review/, and a model that
+      # does not think to run ls guesses paths. Named so that a pull request's own file is unlikely to
+      # share it, and deleted first, as ci/capture does for its files, so only this list stands there.
       - name: List the files under review
         if: steps.capture.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          rm -f review/.loupe-files.txt
+          # -r too: a pull request can put a directory at this path.
+          rm -rf review/.loupe-files.txt
           (cd review && find . -type f ! -path ./pr.diff ! -path ./checks.json | sed 's#^\./##' | LC_ALL=C sort) \
             > "$RUNNER_TEMP/loupe-files.txt"
           mv "$RUNNER_TEMP/loupe-files.txt" review/.loupe-files.txt
@@ -286,7 +287,7 @@ jobs:
             --model ${{ inputs.model }}
             --add-dir review
             --max-turns ${{ inputs.max_turns }}
-            --allowedTools "Write,Glob,Grep,Bash(loupe --help),Bash(loupe capture --help),Bash(loupe add --help),Bash(loupe add:*),Bash(loupe edit --help),Bash(loupe edit:*),Bash(loupe summary --help),Bash(loupe summary:*),Bash(loupe assess --help),Bash(loupe assess:*),Bash(loupe wait --help),Bash(loupe handoff --help),Bash(loupe reply --help),Bash(loupe feedback --help),Bash(loupe show --help),Bash(loupe show:*),Bash(loupe list --help),Bash(loupe review --help),Bash(loupe publish --help)"
+            --allowedTools "Write,Bash(loupe --help),Bash(loupe capture --help),Bash(loupe add --help),Bash(loupe add:*),Bash(loupe edit --help),Bash(loupe edit:*),Bash(loupe summary --help),Bash(loupe summary:*),Bash(loupe assess --help),Bash(loupe assess:*),Bash(loupe wait --help),Bash(loupe handoff --help),Bash(loupe reply --help),Bash(loupe feedback --help),Bash(loupe show --help),Bash(loupe show:*),Bash(loupe list --help),Bash(loupe review --help),Bash(loupe publish --help)"
             --disallowedTools "Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(sed:*),Bash(awk:*),Bash(grep:*),Bash(egrep:*),Bash(rg:*),Bash(less:*),Bash(more:*),Bash(nl:*)"
           prompt: |
             You are reviewing one pull request for this repository. Read `loupe --help` first; every
@@ -301,7 +302,7 @@ jobs:
             path up there instead of guessing one. You MUST NOT read outside `$GITHUB_WORKSPACE`.
             Within it, you MUST restrict source reads to `review/` and project-context reads to the
             paths permitted below.
-            You MUST open files with the Read tool and search them with the Grep and Glob tools.
+            You MUST open files with the Read tool. You have no search tool, so find a path in `review/.loupe-files.txt`.
             Shell commands that print a file, such as `cat`, `head`, `tail`, `sed`, `awk` and
             `grep`, are refused, and each refusal costs you a turn.
 
