@@ -450,7 +450,12 @@ jobs:
           # binary file has no +++ header, only a "Binary files ... differ" record. A diff that only
           # deletes leaves grep with no match, which is an empty list and not an error.
           { grep -E '^\+\+\+ b/|^Binary files .* and b/.* differ$' review/pr.diff || true; } \
-            | sed -E 's#^\+\+\+ b/##; s#^Binary files .* and b/(.*) differ$#\1#' | sort -u > "$RUNNER_TEMP/changed-files"
+            | sed -E 's#^\+\+\+ b/##; s#^Binary files .* and b/(.*) differ$#\1#' | sort -u > "$RUNNER_TEMP/changed-in-diff"
+          # A changed file the strip step removed, such as a CLAUDE.md, cannot be opened, so it is not
+          # counted against the reviewer.
+          while IFS= read -r path; do
+            if [ -f "review/$path" ]; then printf '%s\n' "$path"; fi
+          done < "$RUNNER_TEMP/changed-in-diff" > "$RUNNER_TEMP/changed-files"
           # Only the Read tool counts as opening a file. The agent has no Grep or Glob.
           # Each miss in the root-guidance lookup is a Read whose result is an error, which is not a read.
           jq -r --arg ws "$GITHUB_WORKSPACE/" '
