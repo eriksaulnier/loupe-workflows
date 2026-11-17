@@ -202,6 +202,7 @@ jobs:
       # Glob and Grep are not granted, since unscoped they would reach past review/, and a model that
       # does not think to run ls guesses paths. Named so that a pull request's own file is unlikely to
       # share it, and deleted first, as ci/capture does for its files, so only this list stands there.
+      # ci/capture has already deleted every symlink in review/, so none can redirect this write.
       - name: List the files under review
         if: steps.capture.outputs.skip != 'true'
         run: |
@@ -270,7 +271,7 @@ jobs:
       # `--disallowedTools`: Claude Code runs commands that print a file, such as cat and grep, without
       # asking, and a read through them never reaches the coverage line. A deny rule outranks that
       # auto-approval, in each part of a compound command too. It is not a security boundary, only a
-      # push toward Read and Grep.
+      # push toward Read.
       - name: Review the pull request
         id: review
         if: steps.capture.outputs.skip != 'true'
@@ -440,8 +441,7 @@ jobs:
           # deletes leaves grep with no match, which is an empty list and not an error.
           { grep -E '^\+\+\+ b/|^Binary files .* and b/.* differ$' review/pr.diff || true; } \
             | sed -E 's#^\+\+\+ b/##; s#^Binary files .* and b/(.*) differ$#\1#' | sort -u > "$RUNNER_TEMP/changed-files"
-          # Only the Read tool counts as opening a file; a Grep or Glob over review/ shows the agent
-          # matching lines, not reading them.
+          # Only the Read tool counts as opening a file. The agent has no Grep or Glob.
           # Each miss in the root-guidance lookup is a Read whose result is an error, which is not a read.
           jq -r --arg ws "$GITHUB_WORKSPACE/" '
             [ .[] | select(.type == "user") | .message.content[]?
