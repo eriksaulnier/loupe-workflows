@@ -165,7 +165,7 @@ jobs:
 
       - name: Capture the pull request
         id: capture
-        uses: secondshift-labs/loupe/ci/capture@3d70fcf7b611542c74a77021e975583899e05eeb # v0.25.1
+        uses: secondshift-labs/loupe/ci/capture@51eed3560f647f6d72d856771041c170b4cc4413 # v0.25.2
         with:
           pull_request: ${{ inputs.pull_request }}
           source: ${{ inputs.source }}
@@ -556,7 +556,7 @@ jobs:
       # Not always(): only a review step that succeeded leaves a draft fit to publish.
       - name: Save the run for the publish job
         if: steps.capture.outputs.skip != 'true'
-        uses: secondshift-labs/loupe/ci/save@3d70fcf7b611542c74a77021e975583899e05eeb # v0.25.1
+        uses: secondshift-labs/loupe/ci/save@51eed3560f647f6d72d856771041c170b4cc4413 # v0.25.2
         with:
           pull_request: ${{ inputs.pull_request }}
           source: ${{ inputs.source }}
@@ -570,7 +570,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: secondshift-labs/loupe/.github/workflows/publish.yml@3d70fcf7b611542c74a77021e975583899e05eeb # v0.25.1
+    uses: secondshift-labs/loupe/.github/workflows/publish.yml@51eed3560f647f6d72d856771041c170b4cc4413 # v0.25.2
     with:
       pull_request: ${{ inputs.pull_request }}
       source: ${{ inputs.source }}
