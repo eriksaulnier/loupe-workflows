@@ -187,6 +187,8 @@ jobs:
           else
             code=$(jq -r '.error.code // ""' <<<"$result" 2>/dev/null || true)
             case "$code" in
+              # loupe's contract: show --previous refuses not-found when capture found no earlier review,
+              # and previous-unreadable when one exists but could not be read back.
               not-found | previous-unreadable)
                 echo "no previous round: $(jq -r '.error.message' <<<"$result")"
                 previous="There is no earlier round of this pipeline that loupe could read back, so there is nothing to compare against. Do not run \`loupe show --previous\` or \`loupe assess\`."
@@ -203,10 +205,15 @@ jobs:
       # does not think to run ls guesses paths. Named so that a pull request's own file is unlikely to
       # share it, and deleted first, as ci/capture does for its files, so only this list stands there.
       # ci/capture has already deleted every symlink in review/, so none can redirect this write.
-      - name: List the files under review
+      - name: Strip agent configuration and list the files under review
         if: steps.capture.outputs.skip != 'true'
         run: |
           set -euo pipefail
+          # Claude Code loads skills from .claude/ at the root of an added directory and CLAUDE.md from
+          # under its working directory, so a pull request's own copies would instruct its reviewer. The
+          # reviewer still sees their changes in pr.diff. Only the default branch may say how to review.
+          find review \( -type d -name .claude -prune -exec rm -rf {} + \) \
+            -o \( -type f \( -name CLAUDE.md -o -name CLAUDE.local.md \) -exec rm -f {} + \)
           # -r too: a pull request can put a directory at this path.
           rm -rf review/.loupe-files.txt
           # A name with a newline in it would read as two paths, so such names are left out.
@@ -300,7 +307,8 @@ jobs:
             That is not what you are reviewing; it is the base the pull request is measured against.
             The pull request is in `$GITHUB_WORKSPACE/review`: it holds the pull request's files at
             the commit loupe captured, and `review/pr.diff` is the diff under review. `pr.diff` and
-            `checks.json` there are loupe's, not the pull request's. `review/.loupe-files.txt` lists
+            `checks.json` there are loupe's, not the pull request's. The pull request's `.claude/` directories
+            and `CLAUDE.md` files are removed from `review/`, so read their changes in `review/pr.diff`. `review/.loupe-files.txt` lists
             every file of the pull request, one path per line relative to `review/`. You SHOULD look a
             path up there instead of guessing one. You MUST NOT read outside `$GITHUB_WORKSPACE`.
             Within it, you MUST restrict source reads to `review/` and project-context reads to the
