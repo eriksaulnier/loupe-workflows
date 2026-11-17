@@ -93,7 +93,7 @@ Granting them on the calling job does not hand the agent a write token. The spli
 | Input | Type | Default | What it does |
 | :--- | :--- | :--- | :--- |
 | `pull_request` | string | *required* | The pull request to review. A string rather than a number, because `workflow_dispatch` delivers its inputs as strings whatever type the caller declares. Passing a number works; it is coerced. |
-| `model` | string | *required* | The model id the agent runs on, in the provider's naming: `anthropic/claude-sonnet-...` on OpenRouter, `claude-sonnet-...` on Anthropic. |
+| `model` | string | *required* | The model id the agent runs on, in the provider's naming: `anthropic/claude-sonnet-...` on OpenRouter, `claude-sonnet-...` on Anthropic. The review's footer records it through `loupe capture --model`, which refuses anything outside lowercase letters, digits and `._/:-`, up to 64 characters, so a provider id with capitals fails the round. |
 | `provider` | string | `openrouter` | Where the agent's model runs. `openrouter` sends Claude Code to OpenRouter's Anthropic-compatible endpoint. `anthropic` sends it to Anthropic directly. Any other value stops the round before the agent starts. |
 | `label` | string | `ai-review` | The label that asks for a round, and that the `unlabel` job takes back off. |
 | `source` | string | *required* | The source name loupe records, which appears in the published review's footer and in its hidden `loupe-meta` line as `src=`. It MUST NOT change between rounds. See [One source per pipeline](#one-source-per-pipeline). |

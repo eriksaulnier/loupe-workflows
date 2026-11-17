@@ -16,7 +16,7 @@ on:
         # starts. Every use here interpolates it into a url, an api path or an artifact name.
         type: string
       model:
-        description: Model id the reviewing agent runs on, in the provider's naming
+        description: Model id the reviewing agent runs on, in the provider's naming. The review's footer records it, so it MUST be lowercase letters, digits and ._/:- only, at most 64 characters
         required: true
         type: string
       provider:
@@ -153,14 +153,12 @@ jobs:
 
       - name: Capture the pull request
         id: capture
-        uses: secondshift-labs/loupe/ci/capture@913540b0a4391ebad1d9a2e596bd312268d07982 # v0.25.0
+        uses: secondshift-labs/loupe/ci/capture@3d70fcf7b611542c74a77021e975583899e05eeb # v0.25.1
         with:
           pull_request: ${{ inputs.pull_request }}
           source: ${{ inputs.source }}
           wait_for_checks: ${{ inputs.wait_for_checks }}
-          # MODEL-WIRE: ci/capture at this pin takes no model, so the published footer and loupe-meta
-          # record none. Pass `model: ${{ inputs.model }}` here once the pin reaches a loupe release
-          # whose ci/capture has that input.
+          model: ${{ inputs.model }}
 
       # Whether there is an earlier round is decided here, not by the agent, which would otherwise
       # have to guess from a refusal.
@@ -513,7 +511,7 @@ jobs:
       # Not always(): only a review step that succeeded leaves a draft fit to publish.
       - name: Save the run for the publish job
         if: steps.capture.outputs.skip != 'true'
-        uses: secondshift-labs/loupe/ci/save@913540b0a4391ebad1d9a2e596bd312268d07982 # v0.25.0
+        uses: secondshift-labs/loupe/ci/save@3d70fcf7b611542c74a77021e975583899e05eeb # v0.25.1
         with:
           pull_request: ${{ inputs.pull_request }}
           source: ${{ inputs.source }}
@@ -527,7 +525,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: secondshift-labs/loupe/.github/workflows/publish.yml@913540b0a4391ebad1d9a2e596bd312268d07982 # v0.25.0
+    uses: secondshift-labs/loupe/.github/workflows/publish.yml@3d70fcf7b611542c74a77021e975583899e05eeb # v0.25.1
     with:
       pull_request: ${{ inputs.pull_request }}
       source: ${{ inputs.source }}
